@@ -1,0 +1,9 @@
+{
+  "title": "Lessons",
+  "subtitle": "List of lessons and the plan of the selected lesson.",
+  "plan": {
+    "title": "Lesson plan",
+    "subtitle": "Steps of the lesson before it starts.",
+    "lessonId": "Lesson: {{id}}"
+  }
+}

@@ -1,0 +1,113 @@
+{
+  "app": {
+    "name": "Language Tutor",
+    "tagline": "Voice practice for a foreign language"
+  },
+  "nav": {
+    "label": "Main navigation",
+    "skipToContent": "Skip to content",
+    "home": "Home",
+    "profile": "Profile",
+    "placement": "Placement test",
+    "materials": "Materials",
+    "lessons": "Lessons",
+    "progress": "Progress"
+  },
+  "language": {
+    "label": "Interface language",
+    "hint": "Affects the interface only; the language you learn is set in the profile."
+  },
+  "actions": {
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "continue": "Continue",
+    "create": "Create",
+    "delete": "Delete",
+    "edit": "Edit",
+    "next": "Next",
+    "refresh": "Refresh",
+    "retry": "Try again",
+    "save": "Save",
+    "search": "Search",
+    "start": "Start",
+    "stop": "Stop",
+    "upload": "Upload"
+  },
+  "status": {
+    "loading": "Loading…",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "empty": "Nothing here yet",
+    "underConstruction": "This section is not implemented yet."
+  },
+  "errors": {
+    "title": "Something went wrong",
+    "unknown": "Unexpected error.",
+    "network": "The server is unreachable. Check that it is running.",
+    "timeout": "The server did not respond in time.",
+    "code": "Error code: {{code}}",
+    "byCode": {
+      "bad_request": "The request was rejected as malformed.",
+      "validation_error": "Some values are filled in incorrectly.",
+      "not_found": "The requested resource was not found.",
+      "conflict": "The resource has changed meanwhile; reload the page.",
+      "payload_too_large": "The file or the request exceeds the allowed size.",
+      "unsupported_media_type": "This content type is not supported.",
+      "rate_limited": "Too many requests, try again a bit later.",
+      "not_configured": "This capability is not configured on the server yet.",
+      "upstream_unavailable": "The external service is unavailable.",
+      "upstream_error": "The external service returned an error.",
+      "internal_error": "Internal server error."
+    }
+  },
+  "capabilities": {
+    "title": "Server capabilities",
+    "checking": "Checking server capabilities…",
+    "unreadable": "Could not read the server configuration.",
+    "llm": "Language model",
+    "stt": "Speech recognition",
+    "tts": "Speech synthesis",
+    "version": "Server version",
+    "available": "available",
+    "unavailable": "unavailable",
+    "providerBrowser": "browser",
+    "providerServer": "server ({{provider}})",
+    "warnings": {
+      "title": "Limited capabilities",
+      "configUnavailable": "The server configuration is unavailable, so the capabilities of the voice dialogue are unknown.",
+      "llmUnavailable": "The language model is not configured: lessons and dialogue will not work. {{reason}}",
+      "sttBrowserMissing": "This browser has no speech recognition (Web Speech API is missing, e.g. in Firefox). Set STT_PROVIDER=openai in .env and restart the server to recognise speech on the server.",
+      "ttsBrowserMissing": "This browser has no speech synthesis (Web Speech API is missing, e.g. in Firefox). Set TTS_PROVIDER=openai in .env and restart the server to synthesise speech on the server.",
+      "sttServerUnavailable": "Server speech recognition is not configured. {{reason}}",
+      "ttsServerUnavailable": "Server speech synthesis is not configured. {{reason}}",
+      "microphoneMissing": "The browser gives no access to the microphone API: voice input is unavailable."
+    }
+  },
+  "home": {
+    "title": "Welcome",
+    "subtitle": "A local voice tutor: speak, get corrections and track your progress."
+  },
+  "page": {
+    "notFound": {
+      "title": "Page not found",
+      "description": "The address does not match any section of the application.",
+      "back": "Go to the home page"
+    },
+    "error": {
+      "title": "The page could not be rendered",
+      "description": "An unexpected error happened while rendering this section."
+    }
+  },
+  "units": {
+    "minutes_one": "{{count}} minute",
+    "minutes_other": "{{count}} minutes",
+    "words_one": "{{count}} word",
+    "words_other": "{{count}} words",
+    "lessons_one": "{{count}} lesson",
+    "lessons_other": "{{count}} lessons",
+    "errors_one": "{{count}} error",
+    "errors_other": "{{count}} errors"
+  }
+}

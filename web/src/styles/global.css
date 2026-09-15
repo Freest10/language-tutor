@@ -1,10 +1,55 @@
+/**
+ * Глобальные стили и токены оформления.
+ *
+ * Тема выбирается системой (`prefers-color-scheme`), отдельного переключателя нет:
+ * приложение локальное, и одна тема на устройство — меньше состояния и настроек.
+ * Переменные `--lt-*` — единственный источник цветов и отступов для страниц.
+ */
+
 :root {
   --lt-font-family:
     system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --lt-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
   --lt-color-bg: #ffffff;
   --lt-color-fg: #1a1a1a;
+  --lt-color-muted: #5a6472;
+  --lt-color-surface: #f4f6f9;
+  --lt-color-border: #d8dee7;
+  --lt-color-accent: #2f5fd0;
+  --lt-color-accent-contrast: #ffffff;
+  --lt-color-warning-bg: #fff6e0;
+  --lt-color-warning-border: #e0b34a;
+  --lt-color-error-bg: #fdeceb;
+  --lt-color-error-border: #d05045;
+
+  --lt-space-xs: 0.25rem;
+  --lt-space-sm: 0.5rem;
+  --lt-space-md: 1rem;
+  --lt-space-lg: 1.5rem;
+  --lt-space-xl: 2rem;
+
+  --lt-radius: 8px;
+  --lt-sidebar-width: 15rem;
+  --lt-content-max-width: 60rem;
 
   color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --lt-color-bg: #14171c;
+    --lt-color-fg: #e8eaee;
+    --lt-color-muted: #9aa4b2;
+    --lt-color-surface: #1d2129;
+    --lt-color-border: #2e3541;
+    --lt-color-accent: #7ea6ff;
+    --lt-color-accent-contrast: #0e1117;
+    --lt-color-warning-bg: #332a14;
+    --lt-color-warning-border: #a9821f;
+    --lt-color-error-bg: #3a1f1d;
+    --lt-color-error-border: #c0524a;
+  }
 }
 
 * {
@@ -22,4 +67,253 @@ body {
   font-family: var(--lt-font-family);
   background-color: var(--lt-color-bg);
   color: var(--lt-color-fg);
+  line-height: 1.5;
+}
+
+a {
+  color: var(--lt-color-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--lt-color-accent);
+  outline-offset: 2px;
+}
+
+/* Каркас: боковая навигация и содержимое. */
+
+.lt-shell {
+  display: grid;
+  grid-template-columns: var(--lt-sidebar-width) 1fr;
+  min-height: 100%;
+}
+
+.lt-skip-link {
+  position: absolute;
+  left: -100vw;
+  top: 0;
+  z-index: 10;
+  padding: var(--lt-space-sm) var(--lt-space-md);
+  background-color: var(--lt-color-accent);
+  color: var(--lt-color-accent-contrast);
+}
+
+.lt-skip-link:focus {
+  left: 0;
+}
+
+.lt-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-lg);
+  padding: var(--lt-space-lg) var(--lt-space-md);
+  background-color: var(--lt-color-surface);
+  border-right: 1px solid var(--lt-color-border);
+}
+
+.lt-brand {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-xs);
+  color: inherit;
+  text-decoration: none;
+}
+
+.lt-brand__name {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.lt-brand__tagline {
+  font-size: 0.8rem;
+  color: var(--lt-color-muted);
+}
+
+.lt-nav {
+  flex: 1;
+}
+
+.lt-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lt-nav__link {
+  display: block;
+  padding: var(--lt-space-sm) var(--lt-space-md);
+  border-radius: var(--lt-radius);
+  color: inherit;
+  text-decoration: none;
+}
+
+.lt-nav__link:hover {
+  background-color: var(--lt-color-bg);
+}
+
+.lt-nav__link--active {
+  background-color: var(--lt-color-accent);
+  color: var(--lt-color-accent-contrast);
+  font-weight: 600;
+}
+
+.lt-locale {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-xs);
+}
+
+.lt-locale__label {
+  font-size: 0.8rem;
+  color: var(--lt-color-muted);
+}
+
+.lt-locale__select {
+  padding: var(--lt-space-xs) var(--lt-space-sm);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background-color: var(--lt-color-bg);
+  color: inherit;
+  font: inherit;
+}
+
+.lt-main {
+  padding: var(--lt-space-lg);
+  overflow-x: hidden;
+}
+
+.lt-main:focus {
+  outline: none;
+}
+
+/* Содержимое страниц. */
+
+.lt-page {
+  max-width: var(--lt-content-max-width);
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-md);
+}
+
+.lt-page__title {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.lt-page__lead {
+  margin: 0;
+  color: var(--lt-color-muted);
+}
+
+.lt-placeholder {
+  margin: 0;
+  padding: var(--lt-space-md);
+  border: 1px dashed var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  color: var(--lt-color-muted);
+}
+
+.lt-card {
+  padding: var(--lt-space-md);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background-color: var(--lt-color-surface);
+}
+
+.lt-card > h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+.lt-facts {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) 1fr;
+  gap: var(--lt-space-xs) var(--lt-space-md);
+  margin: 0;
+}
+
+.lt-facts dt {
+  color: var(--lt-color-muted);
+}
+
+.lt-facts dd {
+  margin: 0;
+}
+
+.lt-facts__value {
+  margin: 0;
+  font-family: var(--lt-font-mono);
+  font-size: 0.9rem;
+  color: var(--lt-color-muted);
+}
+
+/* Предупреждения о возможностях. */
+
+.lt-banner {
+  margin-bottom: var(--lt-space-lg);
+  padding: var(--lt-space-md);
+  border: 1px solid var(--lt-color-warning-border);
+  border-radius: var(--lt-radius);
+  background-color: var(--lt-color-warning-bg);
+  color: var(--lt-color-fg);
+}
+
+.lt-banner--error {
+  border-color: var(--lt-color-error-border);
+  background-color: var(--lt-color-error-bg);
+}
+
+.lt-banner__title {
+  margin: 0 0 var(--lt-space-sm);
+  font-weight: 600;
+}
+
+.lt-banner__list {
+  margin: 0;
+  padding-left: var(--lt-space-lg);
+}
+
+.lt-button {
+  display: inline-block;
+  margin-top: var(--lt-space-sm);
+  padding: var(--lt-space-sm) var(--lt-space-md);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background-color: var(--lt-color-bg);
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.lt-button:hover {
+  border-color: var(--lt-color-accent);
+}
+
+/* Узкий экран: навигация уезжает наверх и становится горизонтальной. */
+
+@media (max-width: 48rem) {
+  .lt-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .lt-sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--lt-space-md);
+    border-right: none;
+    border-bottom: 1px solid var(--lt-color-border);
+  }
+
+  .lt-nav__list {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .lt-main {
+    padding: var(--lt-space-md);
+  }
 }

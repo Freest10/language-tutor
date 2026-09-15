@@ -1,0 +1,13 @@
+{
+  "title": "Voice",
+  "subtitle": "Recording, recognition and playback controls.",
+  "record": {
+    "start": "Start recording",
+    "stop": "Stop recording",
+    "listening": "Listening…"
+  },
+  "playback": {
+    "play": "Play",
+    "stop": "Stop playback"
+  }
+}
