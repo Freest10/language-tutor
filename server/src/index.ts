@@ -1,66 +1,55 @@
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+/**
+ * Точка входа сервера: поднимает приложение из `app.ts` и слушает порт.
+ *
+ * Здесь нет ни конфигурации, ни маршрутов: окружение разбирает `config/env.ts`,
+ * приложение собирает `app.ts`. Модули подключаются динамически, чтобы ошибку
+ * конфигурации показать одним понятным сообщением, а не стеком импорта.
+ */
+import { pathToFileURL } from 'node:url';
 
-import cors from '@fastify/cors';
-import { config } from 'dotenv';
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
-import { API_PREFIX, type HealthResponse } from '@lt/shared';
+/** Имя ошибки из `config/env.ts` (импорт модуля здесь невозможен: он и падает). */
+const ENV_VALIDATION_ERROR_NAME = 'EnvValidationError';
 
-const moduleDir = dirname(fileURLToPath(import.meta.url));
+/** Загружает приложение и конфигурацию, переводя ошибку окружения в выход с кодом 1. */
+async function load(): Promise<{
+  buildApp: () => Promise<FastifyInstance>;
+  host: string;
+  port: number;
+  closeDb: () => void;
+}> {
+  try {
+    const { buildApp } = await import('./app.js');
+    const { env } = await import('./config/env.js');
+    const { closeDb } = await import('./db/connection.js');
 
-// `.env` лежит в корне монорепо: путь считаем от текущего файла,
-// чтобы не зависеть от cwd (dev — из server/, prod — из dist/src/).
-config({
-  path: [resolve(moduleDir, '../../.env'), resolve(moduleDir, '../../../.env')],
-  quiet: true,
-});
+    return { buildApp, host: env.host, port: env.port, closeDb };
+  } catch (error) {
+    if (error instanceof Error && error.name === ENV_VALIDATION_ERROR_NAME) {
+      console.error(error.message);
+      process.exit(1);
+    }
 
-export const env = {
-  nodeEnv: process.env.NODE_ENV ?? 'development',
-  host: process.env.HOST ?? '0.0.0.0',
-  port: Number(process.env.PORT ?? 8787),
-  logLevel: process.env.LOG_LEVEL ?? 'info',
-} as const;
-
-function loggerOptions(): FastifyServerOptions['logger'] {
-  if (env.nodeEnv === 'test') {
-    return false;
+    throw error;
   }
-  if (env.nodeEnv === 'development') {
-    return {
-      level: env.logLevel,
-      transport: {
-        target: 'pino-pretty',
-        options: { translateTime: 'HH:MM:ss', ignore: 'pid,hostname' },
-      },
-    };
-  }
-  return { level: env.logLevel };
-}
-
-/** Собирает инстанс Fastify без запуска прослушивания порта (удобно для тестов). */
-export async function buildServer(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: loggerOptions() });
-
-  await app.register(cors, { origin: true });
-
-  app.get(`${API_PREFIX}/health`, async (): Promise<HealthResponse> => ({ status: 'ok' }));
-
-  return app;
 }
 
 async function start(): Promise<void> {
-  const app = await buildServer();
+  const { buildApp, host, port, closeDb } = await load();
+  const app = await buildApp();
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
-      void app.close().then(() => process.exit(0));
+      void app.close().then(() => {
+        closeDb();
+        process.exit(0);
+      });
     });
   }
 
   try {
-    await app.listen({ host: env.host, port: env.port });
+    await app.listen({ host, port });
   } catch (error) {
     app.log.error(error);
     process.exit(1);
@@ -68,6 +57,7 @@ async function start(): Promise<void> {
 }
 
 const entrypoint = process.argv[1];
+
 if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
   await start();
 }
