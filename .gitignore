@@ -12,3 +12,6 @@ data/uploads/
 models/
 .vite/
 *.tsbuildinfo
+.env.*.local
+.eslintcache
+.vitest/

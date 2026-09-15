@@ -1,0 +1,25 @@
+:root {
+  --lt-font-family:
+    system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --lt-color-bg: #ffffff;
+  --lt-color-fg: #1a1a1a;
+
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--lt-font-family);
+  background-color: var(--lt-color-bg);
+  color: var(--lt-color-fg);
+}
