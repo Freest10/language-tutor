@@ -1,0 +1,255 @@
+/**
+ * Доступ к таблицам `materials` и `material_chunks`.
+ *
+ * Здесь живёт весь SQL материалов: сервис работает только с доменными типами
+ * `@lt/shared` и не знает ни про колонки, ни про `file_path` в базе. Соединение
+ * берётся через `getDb()` при каждом обращении — тесты подменяют его `setDb()`.
+ *
+ * Колонка порядка фрагмента называется `order` — это зарезервированное слово SQL,
+ * поэтому в запросах она всегда в двойных кавычках.
+ */
+import type {
+  Id,
+  LanguageCode,
+  ListMaterialsQuery,
+  Material,
+  MaterialChunk,
+  Paginated,
+} from '@lt/shared';
+
+import { getDb } from '../db/connection.js';
+import {
+  materialChunkToRow,
+  materialToRow,
+  rowToMaterial,
+  rowToMaterialChunk,
+} from '../db/mappers.js';
+import {
+  PROFILE_ROW_ID,
+  type MaterialChunkRow,
+  type MaterialRow,
+  type ProfileRow,
+} from '../db/rows.js';
+
+/** Колонки `materials` в порядке, в котором их отдаёт `materialToRow()`. */
+const MATERIAL_COLUMNS = [
+  'id',
+  'title',
+  'source_type',
+  'status',
+  'status_message',
+  'original_file_name',
+  'file_path',
+  'mime_type',
+  'size_bytes',
+  'language',
+  'level',
+  'char_count',
+  'chunk_count',
+  'page_count',
+  'topics',
+  'summary',
+  'created_at',
+  'updated_at',
+] as const;
+
+const INSERT_MATERIAL_SQL = `INSERT INTO materials (${MATERIAL_COLUMNS.join(', ')})
+  VALUES (${MATERIAL_COLUMNS.map((column) => `@${column}`).join(', ')})`;
+
+const INSERT_CHUNK_SQL = `INSERT INTO material_chunks
+  (id, material_id, "order", content, char_count, page, heading, created_at)
+  VALUES (@id, @material_id, @order, @content, @char_count, @page, @heading, @created_at)`;
+
+/** Экранирование для `LIKE`: сам шаблон собирается здесь, а не приходит от клиента. */
+function toLikePattern(value: string): string {
+  return `%${value.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+}
+
+/** Пустая страница: избавляет вызывающий код от ветвления на `total === 0`. */
+function emptyPage<Item>(limit: number, offset: number): Paginated<Item> {
+  return { items: [], total: 0, limit, offset, hasMore: false };
+}
+
+/** Собирает страницу ответа по элементам и общему числу записей. */
+function toPage<Item>(
+  items: Item[],
+  total: number,
+  limit: number,
+  offset: number,
+): Paginated<Item> {
+  return { items, total, limit, offset, hasMore: offset + items.length < total };
+}
+
+/** Сохраняет материал вместе с его фрагментами одной транзакцией. */
+export function insertMaterial(
+  material: Material,
+  chunks: readonly MaterialChunk[],
+  filePath: string | null,
+): void {
+  const db = getDb();
+  const materialRow = materialToRow(material, { filePath });
+  const chunkRows = chunks.map((chunk) => materialChunkToRow(chunk));
+
+  const insert = db.transaction(() => {
+    db.prepare(INSERT_MATERIAL_SQL).run(materialRow);
+
+    const insertChunk = db.prepare(INSERT_CHUNK_SQL);
+
+    for (const row of chunkRows) {
+      insertChunk.run(row);
+    }
+  });
+
+  insert();
+}
+
+/** Материал по идентификатору; `undefined` — материала нет. */
+export function findMaterialById(id: Id): Material | undefined {
+  const row = getDb().prepare('SELECT * FROM materials WHERE id = ?').get(id) as
+    MaterialRow | undefined;
+
+  return row === undefined ? undefined : rowToMaterial(row);
+}
+
+/** Материалы по списку идентификаторов; порядок результата повторяет порядок списка. */
+export function findMaterialsByIds(ids: readonly Id[]): Material[] {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(`SELECT * FROM materials WHERE id IN (${placeholders})`)
+    .all(...ids) as MaterialRow[];
+  const byId = new Map(rows.map((row) => [row.id, rowToMaterial(row)]));
+
+  return ids
+    .map((id) => byId.get(id))
+    .filter((material): material is Material => material !== undefined);
+}
+
+/**
+ * Путь к исходному файлу материала: `null` — файла нет (вставленный текст),
+ * `undefined` — нет самого материала. В контракт API путь не отдаётся.
+ */
+export function findMaterialFilePath(id: Id): string | null | undefined {
+  const row = getDb().prepare('SELECT file_path FROM materials WHERE id = ?').get(id) as
+    Pick<MaterialRow, 'file_path'> | undefined;
+
+  return row === undefined ? undefined : row.file_path;
+}
+
+/** Страница списка материалов; фильтры применяются одновременно (логическое И). */
+export function listMaterials(query: ListMaterialsQuery): Paginated<Material> {
+  const { limit, offset } = query;
+  const conditions: string[] = [];
+  const parameters: string[] = [];
+
+  if (query.status !== undefined) {
+    conditions.push('status = ?');
+    parameters.push(query.status);
+  }
+  if (query.sourceType !== undefined) {
+    conditions.push('source_type = ?');
+    parameters.push(query.sourceType);
+  }
+  if (query.language !== undefined) {
+    conditions.push('language = ?');
+    parameters.push(query.language);
+  }
+  if (query.search !== undefined) {
+    // Поиск идёт и по названию, и по тексту фрагментов: пользователь ищет материал
+    // по запомнившейся фразе не реже, чем по заголовку.
+    conditions.push(
+      `(title LIKE ? ESCAPE '\\' OR EXISTS (
+         SELECT 1 FROM material_chunks WHERE material_chunks.material_id = materials.id
+           AND material_chunks.content LIKE ? ESCAPE '\\'))`,
+    );
+    parameters.push(toLikePattern(query.search), toLikePattern(query.search));
+  }
+
+  const where = conditions.length === 0 ? '' : ` WHERE ${conditions.join(' AND ')}`;
+  const db = getDb();
+  const { total } = db
+    .prepare(`SELECT COUNT(*) AS total FROM materials${where}`)
+    .get(...parameters) as {
+    total: number;
+  };
+
+  if (total === 0) {
+    return emptyPage<Material>(limit, offset);
+  }
+
+  const rows = db
+    .prepare(`SELECT * FROM materials${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+    .all(...parameters, limit, offset) as MaterialRow[];
+
+  return toPage(rows.map(rowToMaterial), total, limit, offset);
+}
+
+/** Число фрагментов материала. */
+export function countMaterialChunks(materialId: Id): number {
+  const { total } = getDb()
+    .prepare('SELECT COUNT(*) AS total FROM material_chunks WHERE material_id = ?')
+    .get(materialId) as { total: number };
+
+  return total;
+}
+
+/** Страница фрагментов материала в порядке чтения. */
+export function listMaterialChunks(
+  materialId: Id,
+  pagination: { limit: number; offset: number },
+): Paginated<MaterialChunk> {
+  const { limit, offset } = pagination;
+  const total = countMaterialChunks(materialId);
+
+  if (total === 0) {
+    return emptyPage<MaterialChunk>(limit, offset);
+  }
+
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM material_chunks WHERE material_id = ?
+         ORDER BY "order" ASC LIMIT ? OFFSET ?`,
+    )
+    .all(materialId, limit, offset) as MaterialChunkRow[];
+
+  return toPage(rows.map(rowToMaterialChunk), total, limit, offset);
+}
+
+/** Все фрагменты перечисленных материалов в порядке чтения внутри каждого материала. */
+export function listChunksByMaterialIds(materialIds: readonly Id[]): MaterialChunk[] {
+  if (materialIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = materialIds.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT * FROM material_chunks WHERE material_id IN (${placeholders})
+         ORDER BY material_id ASC, "order" ASC`,
+    )
+    .all(...materialIds) as MaterialChunkRow[];
+
+  return rows.map(rowToMaterialChunk);
+}
+
+/**
+ * Язык изучения из профиля: им помечается материал, если клиент не прислал язык.
+ *
+ * Профиль однострочный и создаётся миграцией, поэтому это единственное обращение
+ * к чужой таблице здесь — только чтение одной колонки, без записи и без маппинга.
+ */
+export function findLearningLanguage(): LanguageCode | undefined {
+  const row = getDb()
+    .prepare('SELECT learning_language FROM profile WHERE id = ?')
+    .get(PROFILE_ROW_ID) as Pick<ProfileRow, 'learning_language'> | undefined;
+
+  return row?.learning_language;
+}
+
+/** Удаляет материал; фрагменты уходят каскадом. `false` — материала не было. */
+export function deleteMaterialById(id: Id): boolean {
+  return getDb().prepare('DELETE FROM materials WHERE id = ?').run(id).changes > 0;
+}

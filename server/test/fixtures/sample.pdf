@@ -1,0 +1,60 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+5 0 obj
+<< /Length 1540 >>
+stream
+BT
+/F1 12 Tf
+16 TL
+56 760 Td
+(Reading with a language tutor) Tj T*
+() Tj T*
+(This sample PDF fixture carries a real text layer, so a parser can read it) Tj T*
+(without any optical character recognition. The paragraphs below are long) Tj T*
+(enough to be split into more than one fragment by the chunker.) Tj T*
+() Tj T*
+(A learner who reads a page a day will finish a short novel in a season.) Tj T*
+(The trick is not the volume of the text but the regularity of the habit.) Tj T*
+(Ten minutes every morning beat three hours once a month, because a language) Tj T*
+(is a set of reflexes and reflexes are built by repetition, not by effort.) Tj T*
+() Tj T*
+(When you meet an unknown word, read the whole sentence again before you) Tj T*
+(reach for a dictionary. Most of the time the sentence already tells you) Tj T*
+(what the word means, and a meaning you reconstructed yourself is much) Tj T*
+(harder to forget than a meaning somebody handed to you.) Tj T*
+() Tj T*
+(Speaking is the part that people postpone the longest. It helps to start) Tj T*
+(with texts you have already read: retell one paragraph out loud, slowly,) Tj T*
+(and do not stop to correct yourself in the middle of a sentence. Correct) Tj T*
+(the sentence after you finish it, and then say the whole thing once more.) Tj T*
+() Tj T*
+(At the end of the week, look back at what you read. Pick the five words) Tj T*
+(you met most often and write one sentence with each of them. That is the) Tj T*
+(whole method, and it fits on a single page of a sample PDF fixture.) Tj T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000338 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1930
+%%EOF

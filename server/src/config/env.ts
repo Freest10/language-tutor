@@ -151,6 +151,7 @@ export const envSchema = z.object({
   TTS_PROVIDER: z.enum(VOICE_PROVIDERS, { error: oneOf(VOICE_PROVIDERS) }).default('browser'),
   TTS_BASE_URL: z.preprocess(emptyToUndefined, z.url({ error: 'ожидается URL' }).optional()),
   TTS_MODEL: optionalString(200, 'ожидается имя модели'),
+  TTS_API_KEY: optionalString(500, 'ожидается ключ API'),
   TTS_VOICE: optionalString(60, 'ожидается имя голоса'),
   TTS_FORMAT: z.enum(AUDIO_FORMATS, { error: oneOf(AUDIO_FORMATS) }).default(DEFAULT_TTS_FORMAT),
 });
@@ -193,6 +194,7 @@ export interface Env {
   ttsProvider: VoiceProvider;
   ttsBaseUrl: string | undefined;
   ttsModel: string | undefined;
+  ttsApiKey: string | undefined;
   ttsVoice: string | undefined;
   ttsFormat: AudioFormat;
 }
@@ -278,6 +280,7 @@ function toEnv(raw: RawEnv): Env {
     ttsProvider: raw.TTS_PROVIDER,
     ttsBaseUrl: raw.TTS_BASE_URL,
     ttsModel: raw.TTS_MODEL,
+    ttsApiKey: raw.TTS_API_KEY,
     ttsVoice: raw.TTS_VOICE,
     ttsFormat: raw.TTS_FORMAT,
   };

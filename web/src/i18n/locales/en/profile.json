@@ -1,4 +1,114 @@
 {
   "title": "Profile",
-  "subtitle": "Language you learn, explanation language, level and daily load."
+  "subtitle": "Language you learn, explanation language, level and daily load.",
+  "states": {
+    "loading": "Loading the profile…",
+    "loadFailed": "Could not load the profile."
+  },
+  "sections": {
+    "languages": "Languages",
+    "level": "Level",
+    "goals": "Learning goals",
+    "interests": "Interests",
+    "load": "Daily load"
+  },
+  "languages": {
+    "learning": {
+      "label": "Language you learn",
+      "hint": "Lessons, exercises and the tutor's speech use this language."
+    },
+    "interface": {
+      "label": "Interface language",
+      "hint": "Labels and buttons of the application; switches immediately."
+    },
+    "explanation": {
+      "label": "Explanation language",
+      "hint": "The language the tutor explains rules and mistakes in: usually your own at A1 and the one you learn at C1."
+    }
+  },
+  "level": {
+    "label": "CEFR level",
+    "hint": "A level set by hand counts as a manual estimate; the placement test measures it.",
+    "option": "{{level}} — {{name}}",
+    "badge": "{{level}} — {{name}}",
+    "sourceManual": "set manually",
+    "sourcePlacement": "determined by the placement test",
+    "sourcePlacementAt": "determined by the placement test on {{date}}",
+    "confidence": "confidence {{percent}}%",
+    "startPlacement": "Take the placement test",
+    "names": {
+      "A1": "Beginner",
+      "A2": "Elementary",
+      "B1": "Intermediate",
+      "B2": "Upper-intermediate",
+      "C1": "Advanced",
+      "C2": "Proficient"
+    }
+  },
+  "goals": {
+    "label": "Learning goals",
+    "hint": "At least one goal is required: lessons are planned around it.",
+    "listLabel": "Selected goals",
+    "empty": "No goals yet. Type your own or pick a ready-made one.",
+    "counter": "{{current}} of {{max}} goals",
+    "addLabel": "New goal",
+    "placeholder": "For example: pass a job interview",
+    "add": "Add goal",
+    "remove": "Remove goal “{{value}}”",
+    "presetsLabel": "Ready-made goals",
+    "presets": {
+      "interview": "Job interview",
+      "travel": "Travelling",
+      "work": "Work and correspondence",
+      "study": "Studies and exams",
+      "relocation": "Moving abroad",
+      "smallTalk": "Small talk"
+    },
+    "errors": {
+      "required": "Add at least one goal: without it the tutor cannot plan a lesson.",
+      "empty": "Type the text of the goal.",
+      "tooLong": "A goal takes at most {{max}} characters.",
+      "duplicate": "This goal is already in the list.",
+      "tooMany": "At most {{max}} goals."
+    }
+  },
+  "interests": {
+    "label": "Interests",
+    "hint": "Topics for dialogues and materials; you can leave the list empty.",
+    "listLabel": "Selected interests",
+    "empty": "No interests yet. Type your own or pick a ready-made one.",
+    "counter": "{{current}} of {{max}} interests",
+    "addLabel": "New interest",
+    "placeholder": "For example: mountain hiking",
+    "add": "Add interest",
+    "remove": "Remove interest “{{value}}”",
+    "presetsLabel": "Ready-made interests",
+    "presets": {
+      "movies": "Films and series",
+      "music": "Music",
+      "sports": "Sport",
+      "technology": "Technology",
+      "cooking": "Cooking",
+      "books": "Books"
+    },
+    "errors": {
+      "empty": "Type the text of the interest.",
+      "tooLong": "An interest takes at most {{max}} characters.",
+      "duplicate": "This interest is already in the list.",
+      "tooMany": "At most {{max}} interests."
+    }
+  },
+  "dailyMinutes": {
+    "label": "Minutes a day",
+    "hint": "How long you plan to study daily: from {{min}} to {{max}} minutes.",
+    "error": "Enter a whole number of minutes from {{min}} to {{max}}."
+  },
+  "form": {
+    "save": "Save profile",
+    "saving": "Saving the profile…",
+    "saved": "Profile saved",
+    "unsaved": "There are unsaved changes",
+    "invalid": "Some fields are filled in incorrectly — check the messages next to them.",
+    "saveFailed": "Could not save the profile."
+  }
 }

@@ -5,6 +5,10 @@
  * Здесь сообщается то, что видно из конфигурации: заданы ли адрес и модель
  * провайдера. Доступность внешнего сервиса не проверяется — запрос к нему
  * стоит дороже, чем весь остальной ответ.
+ *
+ * Готовность провайдеров считает `providers/factory.ts` — тем же предикатом,
+ * которым она собирает провайдер для запроса. Иначе конфигурация могла бы
+ * пообещать возможность, которая затем отвечает 501.
  */
 import type { FastifyPluginAsync } from 'fastify';
 
@@ -24,69 +28,10 @@ import {
   MAX_TTS_TEXT_LENGTH,
   type AppConfig,
   type LanguageOption,
-  type LlmCapability,
-  type SttCapability,
-  type TtsCapability,
 } from '@lt/shared';
 
-import { APP_VERSION, env } from '../config/env.js';
-
-/** Доступность языковой модели: модель и адрес API заданы. */
-function llmCapability(): LlmCapability {
-  const available = env.llmBaseUrl.length > 0 && env.llmModel.length > 0;
-
-  return {
-    available,
-    model: available ? env.llmModel : null,
-    reason: available ? null : 'Не заданы LLM_BASE_URL или LLM_MODEL',
-  };
-}
-
-/** Доступность распознавания речи; `browser` — работу выполняет клиент. */
-function sttCapability(): SttCapability {
-  if (env.sttProvider === 'browser') {
-    return {
-      provider: 'browser',
-      available: true,
-      model: null,
-      reason: `Распознавание выполняет браузер; серверный ${API_PREFIX}/voice/stt отключён (STT_PROVIDER=browser)`,
-    };
-  }
-
-  const available = env.sttBaseUrl !== undefined && env.sttModel !== undefined;
-
-  return {
-    provider: env.sttProvider,
-    available,
-    model: env.sttModel ?? null,
-    reason: available ? null : 'Не заданы STT_BASE_URL или STT_MODEL',
-  };
-}
-
-/** Доступность синтеза речи; `browser` — работу выполняет клиент. */
-function ttsCapability(): TtsCapability {
-  if (env.ttsProvider === 'browser') {
-    return {
-      provider: 'browser',
-      available: true,
-      model: null,
-      voice: null,
-      formats: [],
-      reason: `Синтез выполняет браузер; серверный ${API_PREFIX}/voice/tts отключён (TTS_PROVIDER=browser)`,
-    };
-  }
-
-  const available = env.ttsBaseUrl !== undefined && env.ttsModel !== undefined;
-
-  return {
-    provider: env.ttsProvider,
-    available,
-    model: env.ttsModel ?? null,
-    voice: env.ttsVoice ?? null,
-    formats: available ? [env.ttsFormat] : [],
-    reason: available ? null : 'Не заданы TTS_BASE_URL или TTS_MODEL',
-  };
-}
+import { APP_VERSION } from '../config/env.js';
+import { llmCapability, sttCapability, ttsCapability } from '../providers/factory.js';
 
 /** Языки с готовыми пресетами: их предлагает интерфейс. */
 function supportedLanguages(): LanguageOption[] {

@@ -317,3 +317,202 @@ a {
     padding: var(--lt-space-md);
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Переиспользуемые классы фичевых пакетов.
+ * Добавлены оркестратором централизованно: global.css принадлежит каркасу, а
+ * фичевые пакеты не могут его править, иначе восемь параллельных пакетов
+ * конфликтовали бы в одном файле. Пользуйтесь этими классами вместо
+ * инлайн-стилей; цвета и отступы — только через переменные --lt-*.
+ * ------------------------------------------------------------------------ */
+
+/* Поле формы: подпись, подсказка, сообщение об ошибке */
+.lt-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-xs);
+  margin-bottom: var(--lt-space-md);
+}
+
+.lt-field__label {
+  font-weight: 600;
+}
+
+.lt-field__hint {
+  color: var(--lt-color-muted);
+  font-size: 0.875rem;
+}
+
+.lt-field__error {
+  color: var(--lt-color-error-border);
+  font-size: 0.875rem;
+}
+
+.lt-field input[type='text'],
+.lt-field input[type='number'],
+.lt-field select,
+.lt-field textarea {
+  padding: var(--lt-space-sm);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background: var(--lt-color-bg);
+  color: var(--lt-color-fg);
+  font: inherit;
+  width: 100%;
+  max-width: 28rem;
+}
+
+/* Чипы: цели, интересы, выбранные материалы, целевая лексика */
+.lt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lt-space-sm);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.lt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lt-space-xs);
+  padding: var(--lt-space-xs) var(--lt-space-sm);
+  border: 1px solid var(--lt-color-border);
+  border-radius: 999px;
+  background: var(--lt-color-surface);
+  font-size: 0.875rem;
+}
+
+.lt-chip--selected {
+  border-color: var(--lt-color-accent);
+  background: var(--lt-color-accent);
+  color: var(--lt-color-accent-contrast);
+}
+
+.lt-chip__remove {
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 var(--lt-space-xs);
+}
+
+.lt-chip__remove:hover {
+  color: var(--lt-color-error-border);
+}
+
+/* Бейдж статуса */
+.lt-badge {
+  display: inline-block;
+  padding: var(--lt-space-xs) var(--lt-space-sm);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background: var(--lt-color-surface);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.lt-badge--ok {
+  border-color: var(--lt-color-accent);
+  color: var(--lt-color-accent);
+}
+
+.lt-badge--warn {
+  border-color: var(--lt-color-warning-border);
+  background: var(--lt-color-warning-bg);
+}
+
+.lt-badge--error {
+  border-color: var(--lt-color-error-border);
+  background: var(--lt-color-error-bg);
+}
+
+.lt-badge--muted {
+  color: var(--lt-color-muted);
+}
+
+/* Горизонтальный ряд действий */
+.lt-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lt-space-sm);
+  margin-bottom: var(--lt-space-md);
+}
+
+.lt-toolbar--end {
+  justify-content: flex-end;
+}
+
+/* Список записей (материалы, уроки, лексика) */
+.lt-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lt-space-sm);
+}
+
+.lt-list__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lt-space-sm);
+  padding: var(--lt-space-md);
+  border: 1px solid var(--lt-color-border);
+  border-radius: var(--lt-radius);
+  background: var(--lt-color-surface);
+}
+
+.lt-list__item--selected {
+  border-color: var(--lt-color-accent);
+}
+
+/* Таблица */
+.lt-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.lt-table th,
+.lt-table td {
+  padding: var(--lt-space-sm);
+  border-bottom: 1px solid var(--lt-color-border);
+  text-align: start;
+}
+
+.lt-table th {
+  color: var(--lt-color-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+/* Скелетон загрузки */
+.lt-skeleton {
+  background: var(--lt-color-surface);
+  border-radius: var(--lt-radius);
+  min-height: 1rem;
+  animation: lt-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes lt-skeleton-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lt-skeleton {
+    animation: none;
+  }
+}
+
+/* Строка статуса */
+.lt-status {
+  color: var(--lt-color-muted);
+  font-size: 0.875rem;
+}

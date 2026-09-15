@@ -1,4 +1,134 @@
 {
   "title": "Materials",
-  "subtitle": "Texts and files that lessons are built from."
+  "subtitle": "Texts and files that lessons are built from.",
+  "uploader": {
+    "title": "Add a material",
+    "mode": {
+      "legend": "How do you want to add the material?",
+      "file": "Upload a file",
+      "text": "Paste text"
+    },
+    "progressLabel": "Sending to the server",
+    "file": {
+      "dropzoneLabel": "File upload area",
+      "dropHint": "Drag a file here or choose it below.",
+      "inputLabel": "File",
+      "formats": "TXT, MD or a PDF with a text layer, up to {{size}}. DOCX and scans are not supported.",
+      "selected": "Selected: {{name}}, {{size}}.",
+      "submit": "Upload file",
+      "progress": "Uploading “{{name}}”…"
+    },
+    "titleField": {
+      "label": "Title",
+      "hint": "Optional: the file name is used when left empty."
+    },
+    "text": {
+      "label": "Material text",
+      "counter": "{{used}} of {{max}} characters.",
+      "submit": "Add text",
+      "progress": "Saving the text…"
+    },
+    "success": "“{{title}}” has been added. Extracting the text may take a while.",
+    "validation": {
+      "unsupportedFormat": "Only TXT, MD and PDF files are supported. DOCX is not.",
+      "tooLarge": "The file is larger than {{size}}. Upload a smaller file or split it into parts.",
+      "empty": "The file is empty: there is nothing to extract.",
+      "noFile": "Choose a file to upload.",
+      "noText": "Paste the text of the material.",
+      "textTooLong": "The text is longer than {{max}} characters. Shorten it or split it into several materials."
+    }
+  },
+  "list": {
+    "title": "Your materials",
+    "empty": "No materials yet. Upload a file or paste a text above.",
+    "error": "The list of materials could not be loaded.",
+    "summary": "Showing {{shown}} of {{total}}.",
+    "fields": {
+      "sourceType": "Type",
+      "size": "Size",
+      "createdAt": "Added",
+      "chunks": "Fragments"
+    },
+    "actions": {
+      "preview": "Show text",
+      "loadMore": "Show more materials"
+    }
+  },
+  "sourceType": {
+    "pdf": "PDF",
+    "txt": "Text file",
+    "text": "Pasted text"
+  },
+  "status": {
+    "pending": {
+      "label": "Queued",
+      "hint": "The material is waiting for its text to be extracted."
+    },
+    "processing": {
+      "label": "Processing",
+      "hint": "The text is being extracted right now; the fragment count will appear shortly."
+    },
+    "ready": {
+      "label": "Ready",
+      "hint": "The text has been extracted, the material can be used in lessons."
+    },
+    "error_no_text_layer": {
+      "label": "PDF without a text layer",
+      "hint": "The pages of this PDF are images (a scan), so there is no text to read. Upload a PDF whose text can be selected, or paste the text by hand: recognising text on images is not supported."
+    },
+    "error_unsupported_format": {
+      "label": "Unsupported format",
+      "hint": "Text can only be extracted from TXT, MD and PDF files. Convert the document or paste its text by hand."
+    },
+    "error_too_large": {
+      "label": "Too large",
+      "hint": "The file is bigger than the server accepts. Split it into parts and upload them one by one."
+    },
+    "error_extraction_failed": {
+      "label": "Extraction failed",
+      "hint": "The file could not be read to the end: it may be damaged or protected. Re-save it or paste the text by hand."
+    }
+  },
+  "delete": {
+    "title": "Confirm deletion",
+    "question": "Delete “{{title}}”?",
+    "warning": "The material and its fragments will be removed; lessons already built from it stay as they are.",
+    "confirm": "Yes, delete",
+    "pending": "Deleting…"
+  },
+  "preview": {
+    "title": "Material text",
+    "nothingSelected": "Choose a material in the list to see its text.",
+    "loading": "Loading the text…",
+    "error": "The material could not be opened.",
+    "noText": "No text has been extracted from this material.",
+    "shown": "Showing {{shown}} of {{total}} fragments.",
+    "loadMore": "Load more text",
+    "loadingMore": "Loading…",
+    "close": "Close the panel",
+    "chunk": "Fragment {{order}}",
+    "chunkOnPage": "Fragment {{order}}, page {{page}}",
+    "fields": {
+      "language": "Language",
+      "level": "Level",
+      "levelUnknown": "not determined",
+      "chars": "Text length",
+      "pages": "Pages",
+      "topics": "Topics"
+    }
+  },
+  "errors": {
+    "tooLarge": "The server rejected the file: it exceeds the limit of {{size}}. Upload a smaller file or split it into parts.",
+    "unsupportedFormat": "The server rejected the file format. Upload TXT, MD or a PDF with a text layer.",
+    "rejected": "The server rejected the material: check the title, the text and the file.",
+    "deleteFailed": "The material could not be deleted."
+  },
+  "units": {
+    "chunks_one": "{{count}} fragment",
+    "chunks_other": "{{count}} fragments",
+    "characters_one": "{{count}} character",
+    "characters_other": "{{count}} characters",
+    "pages_one": "{{count}} page",
+    "pages_other": "{{count}} pages"
+  }
 }
