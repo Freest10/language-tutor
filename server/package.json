@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "db:migrate": "node -e \"console.log('[db:migrate] заглушка: миграции будут реализованы в wp3 (server/src/db)')\"",
+    "db:migrate": "tsx src/db/migrate.ts",
     "clean": "tsc --build --clean"
   },
   "dependencies": {
