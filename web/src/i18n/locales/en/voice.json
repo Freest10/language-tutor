@@ -9,5 +9,63 @@
   "playback": {
     "play": "Play",
     "stop": "Stop playback"
+  },
+  "state": {
+    "idle": "Ready",
+    "listening": "Listening…",
+    "processing": "Recognising…",
+    "speaking": "The tutor is speaking"
+  },
+  "status": {
+    "interim": "Heard so far: {{text}}",
+    "level": "Input level"
+  },
+  "pushToTalk": {
+    "hold": "Hold to speak",
+    "release": "Release to send",
+    "hint": "Hold the button or the space bar while you speak.",
+    "hintMouse": "Hold the button while you speak."
+  },
+  "input": {
+    "errors": {
+      "unsupported": "This browser cannot recognise speech: it has no Web Speech API (Firefox, for example).",
+      "permission_denied": "Microphone access is denied, so nothing was recorded.",
+      "no_device": "No microphone is available for recording.",
+      "no_speech": "No speech was recognised in the recording.",
+      "browser_only": "The server leaves speech recognition to the browser and does not do it itself.",
+      "server_not_configured": "Speech recognition on the server is not configured.",
+      "too_large": "The recording is larger than the server accepts.",
+      "unsupported_format": "The server does not accept the audio format recorded by this browser.",
+      "network": "The server is unreachable, so the recording was not recognised.",
+      "timeout": "Speech recognition did not finish in time.",
+      "failed": "The recording could not be recognised."
+    }
+  },
+  "output": {
+    "errors": {
+      "unsupported": "This browser cannot synthesise speech: it has no Web Speech API (Firefox, for example).",
+      "permission_denied": "The browser blocked the playback of the reply.",
+      "no_device": "There is no audio output to play the reply.",
+      "no_speech": "There was nothing to pronounce.",
+      "browser_only": "The server leaves speech synthesis to the browser and does not do it itself.",
+      "server_not_configured": "Speech synthesis on the server is not configured.",
+      "too_large": "The reply is too long to pronounce.",
+      "unsupported_format": "The audio format of the reply is not supported.",
+      "network": "The server is unreachable, so the reply was not pronounced.",
+      "timeout": "Speech synthesis did not finish in time.",
+      "failed": "The reply could not be pronounced."
+    }
+  },
+  "hints": {
+    "enableServerStt": "Set STT_PROVIDER=openai in .env and restart the server to recognise speech on the server.",
+    "enableServerTts": "Set TTS_PROVIDER=openai in .env and restart the server to synthesise speech on the server.",
+    "allowMicrophone": "Allow microphone access in the browser address bar and press the button again.",
+    "checkMicrophone": "Check that a microphone is connected and not taken by another application.",
+    "speakAgain": "Hold the button and speak a little louder.",
+    "browserMode": "In this configuration speech is handled by the browser; reload the page to pick up the current server settings.",
+    "checkServerConfig": "Check the provider settings in .env (API key and model) and restart the server.",
+    "shorterRecording": "Record a shorter reply.",
+    "retry": "Try again.",
+    "typeInstead": "You can type your reply instead."
   }
 }

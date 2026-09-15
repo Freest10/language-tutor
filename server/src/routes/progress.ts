@@ -1,23 +1,64 @@
 /**
  * Прогресс: сводка, словарь, журнал ошибок, история уровня.
  *
- * - `GET /api/progress/summary`;
- * - `GET /api/progress/vocabulary`;
- * - `GET /api/progress/errors`;
- * - `GET /api/progress/level-history`.
+ * - `GET /api/progress/summary` — уровень и его история, счётчики лексики, топ
+ *   категорий ошибок, серии занятий и готовность уровня к пересчёту (A13);
+ * - `GET /api/progress/vocabulary` — личный словарь с фильтрами и сортировкой;
+ * - `GET /api/progress/errors` — журнал ошибок со счётчиками по категориям;
+ * - `GET /api/progress/level-history` — история изменений уровня.
  *
- * Заглушка: каждый маршрут отвечает 501 `not_configured`
- * (`details.reason = 'not_implemented'`). Обработчики пишет фичевый пакет —
- * прямо в этом файле, не трогая `app.ts` и `config/env.ts`.
+ * Все четыре маршрута только читают: уровень пересчитывается ходом урока через
+ * `progressService.maybeAdjustLevel()`, а не запросом с экрана прогресса.
  */
 import type { FastifyPluginAsync } from 'fastify';
 
-import { notImplementedRoute } from '../lib/httpErrors.js';
+import {
+  getProgressSummaryResponseSchema,
+  listErrorsQuerySchema,
+  listErrorsResponseSchema,
+  listLevelHistoryQuerySchema,
+  listLevelHistoryResponseSchema,
+  listVocabularyQuerySchema,
+  listVocabularyResponseSchema,
+  type GetProgressSummaryResponse,
+  type ListErrorsResponse,
+  type ListLevelHistoryResponse,
+  type ListVocabularyResponse,
+} from '@lt/shared';
+
+import { parseQuery } from '../lib/validate.js';
+import {
+  getProgressSummary,
+  listErrors,
+  listLevelHistory,
+  listVocabulary,
+} from '../services/progressService.js';
 
 /** Маршруты прогресса. */
 export const progressRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/progress/summary', notImplementedRoute('GET /api/progress/summary'));
-  app.get('/progress/vocabulary', notImplementedRoute('GET /api/progress/vocabulary'));
-  app.get('/progress/errors', notImplementedRoute('GET /api/progress/errors'));
-  app.get('/progress/level-history', notImplementedRoute('GET /api/progress/level-history'));
+  app.get(
+    '/progress/summary',
+    { schema: { response: { 200: getProgressSummaryResponseSchema } } },
+    (): GetProgressSummaryResponse => getProgressSummary(),
+  );
+
+  app.get(
+    '/progress/vocabulary',
+    { schema: { response: { 200: listVocabularyResponseSchema } } },
+    (request): ListVocabularyResponse =>
+      listVocabulary(parseQuery(request, listVocabularyQuerySchema)),
+  );
+
+  app.get(
+    '/progress/errors',
+    { schema: { response: { 200: listErrorsResponseSchema } } },
+    (request): ListErrorsResponse => listErrors(parseQuery(request, listErrorsQuerySchema)),
+  );
+
+  app.get(
+    '/progress/level-history',
+    { schema: { response: { 200: listLevelHistoryResponseSchema } } },
+    (request): ListLevelHistoryResponse =>
+      listLevelHistory(parseQuery(request, listLevelHistoryQuerySchema)),
+  );
 };

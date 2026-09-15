@@ -1,4 +1,72 @@
 {
   "title": "Placement test",
-  "subtitle": "A short dialogue that estimates your current CEFR level."
+  "subtitle": "A short dialogue that estimates your current CEFR level.",
+  "intro": {
+    "title": "How it works",
+    "description_one": "The tutor asks you {{count}} question and adapts its difficulty to your answers.",
+    "description_other": "The tutor asks up to {{count}} questions and adapts their difficulty to your answers.",
+    "duration": "It takes about {{minutes}} minutes, and you can stop earlier at any moment.",
+    "steps": {
+      "questions": "Questions get easier or harder depending on how you answer.",
+      "answers": "Answer in your own words: a couple of sentences is enough.",
+      "profile": "The level you get is saved to the profile, and lessons are built around it."
+    },
+    "checking": "Checking whether the language model is ready…",
+    "configUnavailable": "The server configuration is unavailable, so it is unknown whether the language model is ready. You can still try to start the test.",
+    "llmUnavailable": {
+      "title": "The language model is not configured",
+      "description": "The placement test asks its questions through a language model. Set the provider and the model in .env, restart the server and come back."
+    },
+    "start": "Start the test",
+    "starting": "Preparing the first question…"
+  },
+  "chat": {
+    "title": "Placement dialogue",
+    "logLabel": "Dialogue with the tutor",
+    "progress": "Question {{current}} of about {{total}}",
+    "question": "Question {{number}}:",
+    "answer": "Your answer:",
+    "thinking": "The tutor is reading your answer and preparing the next question…",
+    "finishing": "Working out your level…",
+    "allAnswered": "All the questions are answered. Finish the test to see your level.",
+    "restoring": "Restoring the unfinished test…",
+    "finish": "Show the result",
+    "finishEarly": "Finish now",
+    "input": {
+      "label": "Your answer",
+      "placeholder": "Answer in the language you learn",
+      "hint": "Ctrl+Enter (⌘+Enter) sends the answer.",
+      "submit": "Send answer",
+      "empty": "Type an answer before sending it.",
+      "tooLong": "An answer takes at most {{max}} characters."
+    }
+  },
+  "result": {
+    "title": "Your level",
+    "level": "{{level}} — {{name}}",
+    "confidence": "confidence {{percent}}%",
+    "turnsEvaluated_one": "{{count}} answer evaluated",
+    "turnsEvaluated_other": "{{count}} answers evaluated",
+    "accuracy": "{{percent}}% of them correct",
+    "rationale": "Why this level",
+    "strengths": "Strengths",
+    "weaknesses": "What to work on",
+    "recommendedGoals": "Suggested goals",
+    "saving": "Saving the level to the profile…",
+    "savedToProfile": "Level {{level}} is saved to the profile: lessons start from it.",
+    "notSavedToProfile": "The level is not saved to the profile yet.",
+    "saveToProfile": "Save to profile",
+    "saveFailed": "The level could not be saved to the profile.",
+    "restart": "Take the test again",
+    "createLesson": "Create the first lesson"
+  },
+  "errors": {
+    "notConfigured": "The language model is not configured, so the tutor cannot ask questions. Check the provider and the model in .env and restart the server.",
+    "upstreamUnavailable": "The language model did not respond: usually it is stopped or busy with another request.",
+    "upstreamError": "The language model returned an error or an answer the application could not read.",
+    "progressKept": "The test is kept on the server: your answers are not lost, you can try again.",
+    "startFailed": "The placement test could not be started.",
+    "restoreFailed": "The unfinished test could not be loaded.",
+    "startOver": "Start a new test"
+  }
 }
