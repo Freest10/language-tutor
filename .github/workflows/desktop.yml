@@ -31,28 +31,39 @@ on:
       - 'v*'
 
 jobs:
+  # Матрица собирается заранее: выбор платформы нельзя проверить условием самой
+  # задачи — `matrix` там ещё не существует, GitHub раскрывает её позже.
+  plan:
+    name: Что собираем
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - id: pick
+        shell: bash
+        run: |
+          mac='{"os":"macos-14","name":"macOS","pack":"npm run pack:mac -w @lt/desktop","artifacts":"desktop/release/*.dmg"}'
+          win='{"os":"windows-latest","name":"Windows","pack":"npm run pack:win -w @lt/desktop","artifacts":"desktop/release/*.exe"}'
+
+          # Всё, кроме явного выбора одной платформы, собирает обе: и запуск по
+          # тегу, и неожиданное значение.
+          case "${{ inputs.platform }}" in
+            macOS) include="[$mac]" ;;
+            Windows) include="[$win]" ;;
+            *) include="[$mac,$win]" ;;
+          esac
+
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
   build:
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            name: macOS
-            pack: npm run pack:mac -w @lt/desktop
-            artifacts: desktop/release/*.dmg
-          - os: windows-latest
-            name: Windows
-            pack: npm run pack:win -w @lt/desktop
-            artifacts: desktop/release/*.exe
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    # Сборка по тегу делает обе платформы; ручной запуск — те, что выбрали.
-    if: >-
-      ${{ github.event_name != 'workflow_dispatch'
-      || inputs.platform == 'обе'
-      || inputs.platform == matrix.name }}
+    needs: plan
 
     steps:
       - uses: actions/checkout@v4
