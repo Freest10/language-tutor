@@ -47,7 +47,7 @@ describe('resolvePaths', () => {
       resolved.settingsFile,
       resolved.logDir,
     ]) {
-      expect(path).toContain('/Users/tester/');
+      expect(posix(path)).toContain('/Users/tester/');
       expect(path).not.toContain('app.asar');
     }
   });
