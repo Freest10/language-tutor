@@ -2,10 +2,17 @@
  * Прикладная логика материалов: приём файла или текста, извлечение текста,
  * разбиение на фрагменты, выдача и удаление.
  *
- * Обработка синхронная: `POST /api/materials` возвращает материал, у которого уже
- * проставлен финальный статус (`ready` либо один из `error_*`). Очередь и фоновые
- * задачи в однопользовательском локальном приложении не нужны, а предсказуемый
- * ответ упрощает интерфейс: показывать «обрабатывается…» не требуется.
+ * Обработка синхронная везде, где она укладывается в один HTTP-запрос: `.txt`,
+ * `.md` и PDF с текстовым слоем возвращаются из `POST /api/materials` уже с
+ * финальным статусом (`ready` либо один из `error_*`).
+ *
+ * Единственное исключение — PDF-скан при включённом `SCAN_MODE`: распознавание
+ * страницы стоит от 0.3 с (локальный OCR) до минут (зрячая модель), и держать
+ * ради него открытым запрос нельзя. Такой материал сохраняется со статусом
+ * `processing`, ответ уходит сразу, а страницы обрабатываются фоном — по одной,
+ * с показом хода работы в `statusMessage`. Очередь и воркеры при этом не нужны:
+ * приложение однопользовательское, а фоновая задача живёт в памяти процесса
+ * (перезапуск её теряет — см. `recoverStuckMaterials()`).
  *
  * Оценка уровня (`level`), темы (`topics`) и краткое содержание (`summary`) здесь
  * не заполняются: это работа языковой модели, а не разбора файла.
@@ -37,15 +44,19 @@ import {
   payloadTooLarge,
   unsupportedMediaType,
 } from '../lib/httpErrors.js';
+import { checkScanAvailability, scanPdfPages, type ScanPdfResult } from '../lib/scanExtraction.js';
 import {
   extractText,
+  isPdfNoTextLayerError,
   isTextExtractionError,
   normalizeText,
   type ExtractableFormat,
   type ExtractedText,
+  type PdfNoTextLayerError,
 } from '../lib/textExtraction.js';
 import {
   deleteMaterialById,
+  failStuckProcessingMaterials,
   findLearningLanguage,
   findMaterialById,
   findMaterialFilePath,
@@ -54,6 +65,9 @@ import {
   listChunksByMaterialIds,
   listMaterialChunks,
   listMaterials as selectMaterials,
+  updateMaterialContent,
+  updateMaterialFailure,
+  updateMaterialStatusMessage,
 } from '../repositories/materialRepository.js';
 
 /** Предел размера загружаемого файла: меньшее из ограничения контракта и `MAX_UPLOAD_MB`. */
@@ -256,6 +270,11 @@ async function buildMaterial(draft: {
   try {
     extracted = await draft.extract();
   } catch (error) {
+    // Скан с включённым распознаванием — не неудача, а начало фоновой работы.
+    if (isPdfNoTextLayerError(error) && draft.filePath !== null) {
+      return startScan(base, draft.filePath, error);
+    }
+
     const failed: Material = isTextExtractionError(error)
       ? {
           ...base,
@@ -307,6 +326,165 @@ function toMaterialChunks(
     heading: chunk.heading,
     createdAt,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Фоновое распознавание сканов
+// ---------------------------------------------------------------------------
+
+/** Пояснение к статусу `processing` сразу после приёма файла. */
+const SCAN_QUEUED_MESSAGE = 'Страницы скана поставлены в очередь на распознавание…';
+
+/** Пояснение к материалу, обработка которого потерялась при перезапуске сервера. */
+const SCAN_INTERRUPTED_MESSAGE =
+  'Распознавание прервано перезапуском сервера. Загрузите материал заново.';
+
+/** Идущие фоновые обработки: ключ — материал, значение — её завершение. */
+const scanJobs = new Map<Id, Promise<void>>();
+
+/**
+ * Ждёт завершения всех идущих фоновых обработок.
+ *
+ * Нужна тестам и остановке процесса: снаружи у фоновой задачи нет другого
+ * способа узнать, что материал дошёл до финального статуса.
+ */
+export async function whenScansSettled(): Promise<void> {
+  while (scanJobs.size > 0) {
+    await Promise.allSettled([...scanJobs.values()]);
+  }
+}
+
+/**
+ * Переводит материалы, застрявшие в `processing`, в ошибку.
+ *
+ * Вызывается один раз при старте процесса: фоновая обработка живёт в памяти и
+ * перезапуск её теряет, а вечное «обрабатывается…» в списке материалов — это
+ * обман пользователя. Честный статус ошибки он видит сразу и просто загружает
+ * файл заново.
+ *
+ * @returns сколько материалов переведено в ошибку
+ */
+export function recoverStuckMaterials(): number {
+  return failStuckProcessingMaterials('error_extraction_failed', SCAN_INTERRUPTED_MESSAGE);
+}
+
+/**
+ * Принимает PDF-скан: если распознавание доступно, материал сохраняется со
+ * статусом `processing`, а страницы уходят в фоновую обработку; если нет —
+ * сохраняется `error_no_text_layer` с объяснением, чего не хватает.
+ */
+async function startScan(
+  base: Material,
+  filePath: string,
+  error: PdfNoTextLayerError,
+): Promise<Material> {
+  const availability = await checkScanAvailability();
+
+  if (!availability.available) {
+    const failed: Material = {
+      ...base,
+      status: 'error_no_text_layer',
+      statusMessage: clampOrNull(
+        `${error.message} ${availability.reason ?? ''}`.trim(),
+        MAX_STATUS_MESSAGE_LENGTH,
+      ),
+      pageCount: error.pageCount,
+    };
+
+    insertMaterial(failed, [], filePath);
+
+    return failed;
+  }
+
+  const queued: Material = {
+    ...base,
+    status: 'processing',
+    statusMessage: SCAN_QUEUED_MESSAGE,
+    pageCount: error.pageCount,
+  };
+
+  insertMaterial(queued, [], filePath);
+  runScanInBackground(queued, filePath);
+
+  return queued;
+}
+
+/** Ставит распознавание материала в фон и следит, чтобы задача не потерялась. */
+function runScanInBackground(material: Material, filePath: string): void {
+  const job = scanMaterial(material, filePath).finally(() => {
+    scanJobs.delete(material.id);
+  });
+
+  scanJobs.set(material.id, job);
+}
+
+/**
+ * Распознаёт страницы материала и доводит его до финального статуса.
+ *
+ * Ошибок наружу не выпускает: запрос пользователя давно завершён, и единственный
+ * способ сообщить о неудаче — статус материала.
+ */
+async function scanMaterial(material: Material, filePath: string): Promise<void> {
+  try {
+    const scanned = await scanPdfPages(filePath, {
+      ...(material.pageCount === null ? {} : { pageCount: material.pageCount }),
+      onProgress: ({ page, total }) => {
+        updateMaterialStatusMessage(
+          material.id,
+          `Распознавание: страница ${String(page)} из ${String(total)}`,
+        );
+      },
+    });
+    const timestamp = nowIso();
+    const chunks = toMaterialChunks(material.id, scanned, timestamp);
+
+    updateMaterialContent(
+      {
+        ...material,
+        status: 'ready',
+        statusMessage: clampOrNull(describeScan(scanned), MAX_STATUS_MESSAGE_LENGTH),
+        charCount: scanned.text.length,
+        chunkCount: chunks.length,
+        pageCount: scanned.pageCount,
+        updatedAt: timestamp,
+      },
+      chunks,
+    );
+  } catch (error) {
+    failScan(material.id, error);
+  }
+}
+
+/** Записывает неудачу распознавания в статус материала. */
+function failScan(id: Id, error: unknown): void {
+  const status = isTextExtractionError(error) ? error.status : 'error_extraction_failed';
+  const message = isTextExtractionError(error)
+    ? error.message
+    : 'Не удалось распознать страницы PDF';
+
+  try {
+    updateMaterialFailure(id, status, clampOrNull(message, MAX_STATUS_MESSAGE_LENGTH) ?? message);
+  } catch (writeError) {
+    // База недоступна (процесс останавливается): материал останется в `processing`
+    // и будет вычищен при следующем старте. Ронять процесс из фоновой задачи нельзя.
+    console.error('Не удалось сохранить неудачу распознавания материала', id, writeError);
+  }
+}
+
+/**
+ * Пояснение к готовому скану: заполняется, только когда пользователю есть что
+ * знать, — обработаны не все страницы.
+ */
+function describeScan(scanned: ScanPdfResult): string | null {
+  if (!scanned.truncated) {
+    return null;
+  }
+
+  return (
+    `Распознаны первые ${String(scanned.processedPages)} страниц ` +
+    `из ${String(scanned.pageCount)}: предел SCAN_MAX_PAGES. ` +
+    'Остальные страницы в материал не попали — поднимите предел в .env и загрузите файл заново.'
+  );
 }
 
 // ---------------------------------------------------------------------------

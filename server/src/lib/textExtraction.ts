@@ -3,9 +3,10 @@
  *
  * Поддерживаются только форматы из `MATERIAL_SUPPORTED_MIME_TYPES`: `txt`/`md`
  * читаются как UTF-8, `pdf` разбирается библиотекой `pdf-parse` (pdf.js).
- * Распознавание изображений (OCR) в объём приложения не входит (A16): PDF-скан
- * без текстового слоя — это не сбой, а материал со статусом `error_no_text_layer`
- * и человекочитаемым пояснением.
+ * Пиксели этот модуль не читает: PDF-скан без текстового слоя — не сбой, а
+ * `PdfNoTextLayerError`, по которому сервис либо отправляет страницы на
+ * распознавание (`lib/scanExtraction.ts`, `SCAN_MODE`), либо сохраняет материал
+ * со статусом `error_no_text_layer` и человекочитаемым пояснением.
  *
  * Все предвидимые неудачи — это `TextExtractionError` с машиночитаемым статусом
  * из `MATERIAL_ERROR_STATUSES`; вызывающий сервис сохраняет материал с этим
@@ -49,6 +50,30 @@ export class TextExtractionError extends Error {
 /** Проверяет, что ошибка — предвидимая неудача извлечения. */
 export function isTextExtractionError(error: unknown): error is TextExtractionError {
   return error instanceof TextExtractionError;
+}
+
+/**
+ * PDF без текстового слоя — скан.
+ *
+ * Отдельный тип нужен, чтобы вызывающий сервис отличал «это скан, его можно
+ * распознать» от прочих неудач и знал, сколько в документе страниц: разбор PDF
+ * уже дал это число, а повторно открывать 500-страничный файл ради счётчика
+ * страниц не стоит.
+ */
+export class PdfNoTextLayerError extends TextExtractionError {
+  /** Число страниц в документе. */
+  readonly pageCount: number;
+
+  constructor(message: string, pageCount: number) {
+    super('error_no_text_layer', message);
+    this.name = 'PdfNoTextLayerError';
+    this.pageCount = pageCount;
+  }
+}
+
+/** Проверяет, что ошибка — PDF без текстового слоя (скан). */
+export function isPdfNoTextLayerError(error: unknown): error is PdfNoTextLayerError {
+  return error instanceof PdfNoTextLayerError;
 }
 
 /** Формат загруженного файла: `text` (вставленный текст) файлом не бывает. */
@@ -99,8 +124,8 @@ export function extractPlainText(data: Buffer): ExtractedText {
 /**
  * Извлекает текстовый слой PDF постранично.
  *
- * Пустой результат означает скан: пиксели без текста pdf.js вернуть не может,
- * а OCR не поддерживается — такой материал получает `error_no_text_layer`.
+ * Пустой результат означает скан: пикселей pdf.js не читает — такой файл уходит
+ * на распознавание (`PdfNoTextLayerError` несёт число страниц документа).
  */
 export async function extractPdfText(data: Buffer): Promise<ExtractedText> {
   const parser = new PDFParse({ data: new Uint8Array(data) });
@@ -112,11 +137,10 @@ export async function extractPdfText(data: Buffer): Promise<ExtractedText> {
       .filter((page) => page.text.length > 0);
 
     if (pages.length === 0) {
-      throw new TextExtractionError(
-        'error_no_text_layer',
-        'В PDF нет текстового слоя: похоже, это скан. Распознавание текста на изображениях ' +
-          'не поддерживается — загрузите PDF с текстом или вставьте текст вручную.',
-      );
+      // Дальше решает вызывающий сервис: при включённом SCAN_MODE страницы уходят
+      // на распознавание, при выключенном — материал остаётся с этим статусом,
+      // а к сообщению добавляется объяснение, чего именно не хватает.
+      throw new PdfNoTextLayerError('В PDF нет текстового слоя: похоже, это скан.', result.total);
     }
 
     const text = normalizeText(pages.map((page) => page.text).join('\n\n'));

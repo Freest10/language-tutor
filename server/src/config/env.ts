@@ -69,6 +69,21 @@ const NODE_ENVS = ['development', 'test', 'production'] as const;
 /** Уровни логирования pino. */
 const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 
+/**
+ * Как обрабатывается PDF без текстового слоя (скан учебника):
+ * - `off` — не обрабатывается: материал получает `error_no_text_layer`;
+ * - `ocr` — страницы растеризуются и распознаются локальным OCR: быстро, только текст;
+ * - `vision` — страницы уходят картинками в зрячую модель: медленно, зато понимает
+ *   вёрстку и описывает иллюстрации словами.
+ */
+export const SCAN_MODES = ['off', 'ocr', 'vision'] as const;
+
+/** Режим обработки PDF без текстового слоя. */
+export type ScanMode = (typeof SCAN_MODES)[number];
+
+/** Языки распознавания по умолчанию: коды BCP-47, как их ждёт macOS Vision. */
+export const DEFAULT_SCAN_OCR_LANGS = ['en-US', 'ru-RU'] as const;
+
 /** Пустая строка в `.env` означает «переменная не задана». */
 function emptyToUndefined(value: unknown): unknown {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
@@ -139,6 +154,32 @@ export const envSchema = z.object({
     .max(250_000_000)
     .optional(),
 
+  // ---------- Распознавание сканов ----------
+  SCAN_MODE: z.enum(SCAN_MODES, { error: oneOf(SCAN_MODES) }).default('ocr'),
+  SCAN_DPI: z.coerce
+    .number({ error: 'ожидается разрешение от 72 до 400 точек на дюйм' })
+    .int()
+    .min(72)
+    .max(400)
+    .default(150),
+  // Защита от 500-страничных сканов: превышение — не ошибка, а обработка первых
+  // N страниц с честной пометкой в statusMessage материала.
+  SCAN_MAX_PAGES: z.coerce
+    .number({ error: 'ожидается число страниц от 1 до 2000' })
+    .int()
+    .min(1)
+    .max(2000)
+    .default(50),
+  SCAN_OCR_LANGS: optionalString(200, 'ожидается список кодов языка через запятую'),
+  // Модель обязана принимать изображения: обычная текстовая модель на запрос со
+  // страницей-картинкой ответит ошибкой или выдумает текст.
+  SCAN_VISION_MODEL: z
+    .string({ error: 'ожидается имя модели со зрением' })
+    .trim()
+    .min(1)
+    .max(200)
+    .default('qwen3-vl:8b-instruct'),
+
   // ---------- HTTP ----------
   CORS_ORIGIN: optionalString(2048, 'ожидается список источников через запятую'),
 
@@ -198,6 +239,16 @@ export interface Env {
   maxUploadBytes: number;
   /** Предел извлечённого из файла текста в символах (не размер файла). */
   maxMaterialTextChars: number;
+  /** Как обрабатывается PDF без текстового слоя: `off` — никак. */
+  scanMode: ScanMode;
+  /** Разрешение растеризации страниц скана, точек на дюйм. */
+  scanDpi: number;
+  /** Сколько первых страниц скана обрабатывается. */
+  scanMaxPages: number;
+  /** Языки локального распознавания: коды BCP-47. */
+  scanOcrLangs: string[];
+  /** Модель режима `vision`: обязана принимать изображения. */
+  scanVisionModel: string;
   /** Разрешённые источники CORS; пусто в env — только собственный веб. */
   corsOrigin: string[];
   /** Базовый URL OpenAI-совместимого API языковой модели. */
@@ -304,6 +355,13 @@ function toEnv(raw: RawEnv): Env {
     maxUploadMb: raw.MAX_UPLOAD_MB,
     maxUploadBytes: raw.MAX_UPLOAD_MB * 1024 * 1024,
     maxMaterialTextChars: resolveTextChars(raw.MAX_MATERIAL_TEXT_CHARS, raw.MAX_UPLOAD_MB),
+    scanMode: raw.SCAN_MODE,
+    scanDpi: raw.SCAN_DPI,
+    scanMaxPages: raw.SCAN_MAX_PAGES,
+    scanOcrLangs: parseScanLangs(raw.SCAN_OCR_LANGS),
+    // Своя переменная, а не LLM_MODEL: диалог тьютора ведёт текстовая модель, а
+    // страницу-картинку способна прочитать только модель со зрением.
+    scanVisionModel: raw.SCAN_VISION_MODEL,
     corsOrigin: parseOrigins(raw.CORS_ORIGIN, raw.WEB_PORT),
     llmBaseUrl: raw.LLM_BASE_URL,
     llmModel: raw.LLM_MODEL,
@@ -339,6 +397,29 @@ function resolveTextChars(explicit: number | undefined, uploadMb: number): numbe
   }
 
   return Math.min(Math.round(uploadMb * 1_100_000), 250_000_000);
+}
+
+/**
+ * `SCAN_OCR_LANGS` — коды языков распознавания через запятую.
+ *
+ * Значение не выводится из профиля намеренно: слой извлечения текста не должен
+ * знать ни про профиль, ни про изучаемый язык — иначе распознавание материала
+ * менялось бы от того, какой язык пользователь выбрал сегодня. Языков всегда
+ * несколько: в учебнике соседствуют изучаемый язык и язык пояснений.
+ */
+function parseScanLangs(value: string | undefined): string[] {
+  const fallback = [...DEFAULT_SCAN_OCR_LANGS];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  const langs = value
+    .split(',')
+    .map((lang) => lang.trim())
+    .filter((lang) => lang.length > 0);
+
+  return langs.length > 0 ? langs : fallback;
 }
 
 /**

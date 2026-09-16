@@ -6,12 +6,17 @@
  *
  * Прогресс показан индикатором без доли выполнения: клиент отправляет файл
  * через `fetch`, а он не сообщает о ходе загрузки тела запроса.
+ *
+ * Ответ сервера приходит раньше, чем материал готов: скан распознаётся в фоне
+ * минутами. Поэтому после отправки форма говорит не «готово», а «принято и
+ * обрабатывается» и отправляет за прогрессом в список — ждать здесь не нужно.
  */
 import { useCallback, useId, useRef, useState, type DragEvent, type FormEvent } from 'react';
 
 import { type Material } from '@lt/shared';
 
 import {
+  isMaterialProcessing,
   useCreateTextMaterial,
   useMaterialFormatters,
   useMaterialLimits,
@@ -344,7 +349,13 @@ export function MaterialUploader({ onAdded }: MaterialUploaderProps) {
         </p>
       )}
 
-      {added && <p role="status">{t('uploader.success', { title: added.title })}</p>}
+      {added && (
+        <p role="status">
+          {isMaterialProcessing(added)
+            ? t('uploader.accepted', { title: added.title })
+            : t('uploader.success', { title: added.title })}
+        </p>
+      )}
     </section>
   );
 }

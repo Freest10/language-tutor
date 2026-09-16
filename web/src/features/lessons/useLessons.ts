@@ -48,6 +48,7 @@ import {
   type ListLessonMaterialsParams,
   type ListLessonsParams,
 } from '../../api/lessons';
+import { materialsPollInterval } from '../materials/useMaterials';
 import { useCapabilities } from '../../context/CapabilitiesProvider';
 import { useApiErrorMessage, useLocale, useT } from '../../i18n/useT';
 import { formatDate, formatDateTime } from '../../lib/format';
@@ -268,6 +269,12 @@ export function useLessonMaterials(
     queryKey: lessonsQueryKeys.materials(params),
     queryFn: ({ signal }) => listLessonMaterials(params, signal),
     enabled,
+    // Скан обрабатывается в фоне минутами. Без опроса пользователь, загрузивший
+    // материал и сразу перешедший к созданию урока, видел бы выключённый чекбокс
+    // «обрабатывается» до перезагрузки страницы. Правило то же, что в разделе
+    // материалов: интервал живёт, только пока есть необработанные.
+    refetchInterval: ({ state }) => materialsPollInterval(state.data?.items ?? []),
+    refetchIntervalInBackground: false,
   });
 
   const refresh = useCallback((): void => {

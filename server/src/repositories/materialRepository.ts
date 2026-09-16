@@ -14,6 +14,7 @@ import type {
   ListMaterialsQuery,
   Material,
   MaterialChunk,
+  MaterialErrorStatus,
   Paginated,
 } from '@lt/shared';
 
@@ -21,6 +22,7 @@ import { getDb } from '../db/connection.js';
 import {
   materialChunkToRow,
   materialToRow,
+  nowIso,
   rowToMaterial,
   rowToMaterialChunk,
 } from '../db/mappers.js';
@@ -59,6 +61,22 @@ const INSERT_MATERIAL_SQL = `INSERT INTO materials (${MATERIAL_COLUMNS.join(', '
 const INSERT_CHUNK_SQL = `INSERT INTO material_chunks
   (id, material_id, "order", content, char_count, page, heading, created_at)
   VALUES (@id, @material_id, @order, @content, @char_count, @page, @heading, @created_at)`;
+
+/**
+ * Колонки, которые меняет фоновая обработка.
+ *
+ * `id` и `created_at` не меняются никогда, `file_path` — тоже: исходный файл лежит
+ * там же, где его оставила загрузка, и обработка его не перекладывает.
+ */
+const MATERIAL_UPDATE_COLUMNS = MATERIAL_COLUMNS.filter(
+  (column) => column !== 'id' && column !== 'file_path' && column !== 'created_at',
+);
+
+const UPDATE_MATERIAL_SQL = `UPDATE materials
+  SET ${MATERIAL_UPDATE_COLUMNS.map((column) => `${column} = @${column}`).join(', ')}
+  WHERE id = @id`;
+
+const DELETE_CHUNKS_SQL = 'DELETE FROM material_chunks WHERE material_id = ?';
 
 /** Экранирование для `LIKE`: сам шаблон собирается здесь, а не приходит от клиента. */
 function toLikePattern(value: string): string {
@@ -101,6 +119,71 @@ export function insertMaterial(
   });
 
   insert();
+}
+
+/**
+ * Заменяет содержимое материала: поля записи и все её фрагменты одной транзакцией.
+ *
+ * Нужна фоновой обработке скана: материал уже сохранён со статусом `processing`,
+ * а текст и фрагменты появляются минутами позже. Старые фрагменты удаляются,
+ * поэтому повторный проход не оставляет дублей.
+ */
+export function updateMaterialContent(material: Material, chunks: readonly MaterialChunk[]): void {
+  const db = getDb();
+  const { file_path: _filePath, created_at: _createdAt, ...materialRow } = materialToRow(material);
+  const chunkRows = chunks.map((chunk) => materialChunkToRow(chunk));
+
+  const update = db.transaction(() => {
+    db.prepare(UPDATE_MATERIAL_SQL).run(materialRow);
+    db.prepare(DELETE_CHUNKS_SQL).run(material.id);
+
+    const insertChunk = db.prepare(INSERT_CHUNK_SQL);
+
+    for (const row of chunkRows) {
+      insertChunk.run(row);
+    }
+  });
+
+  update();
+}
+
+/** Обновляет пояснение к статусу: им показывается ход фоновой обработки. */
+export function updateMaterialStatusMessage(id: Id, statusMessage: string | null): void {
+  getDb()
+    .prepare('UPDATE materials SET status_message = ?, updated_at = ? WHERE id = ?')
+    .run(statusMessage, nowIso(), id);
+}
+
+/** Переводит материал в статус неудачи с пояснением. */
+export function updateMaterialFailure(
+  id: Id,
+  status: MaterialErrorStatus,
+  statusMessage: string,
+): void {
+  getDb()
+    .prepare('UPDATE materials SET status = ?, status_message = ?, updated_at = ? WHERE id = ?')
+    .run(status, statusMessage, nowIso(), id);
+}
+
+/**
+ * Помечает материалы, застрявшие в `processing`, статусом неудачи.
+ *
+ * Фоновая обработка живёт в памяти процесса, поэтому перезапуск сервера её теряет:
+ * без этой уборки материал навсегда остался бы «обрабатывается». Вызывается один
+ * раз при старте, когда никакая обработка ещё не идёт.
+ *
+ * @returns сколько материалов переведено в неудачу
+ */
+export function failStuckProcessingMaterials(
+  status: MaterialErrorStatus,
+  statusMessage: string,
+): number {
+  return getDb()
+    .prepare(
+      `UPDATE materials SET status = ?, status_message = ?, updated_at = ?
+         WHERE status = 'processing'`,
+    )
+    .run(status, statusMessage, nowIso()).changes;
 }
 
 /** Материал по идентификатору; `undefined` — материала нет. */

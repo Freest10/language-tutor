@@ -117,6 +117,8 @@ class OpenAiCompatibleLlmProvider implements LlmProvider {
     const temperature = request.temperature ?? this.temperature;
     const body = {
       model: request.model ?? this.model,
+      // `content` уходит как есть: строка для обычного диалога и список кусков
+      // (`text` + `image_url`) для страницы скана — форма та же, что у OpenAI.
       messages: request.messages.map((message) => ({
         role: message.role,
         content: message.content,

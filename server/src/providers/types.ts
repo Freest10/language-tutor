@@ -169,10 +169,36 @@ export const CHAT_ROLES = ['system', 'user', 'assistant'] as const;
 /** Роль реплики в диалоге с языковой моделью. */
 export type ChatRole = (typeof CHAT_ROLES)[number];
 
-/** Реплика диалога с языковой моделью. */
+/** Кусок реплики с текстом. */
+export interface ChatTextPart {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * Кусок реплики с изображением.
+ *
+ * `url` — это `data:`-URL (`data:image/png;base64,…`): картинки страниц нигде не
+ * хранятся и живут только внутри одного запроса, ссылаться серверу не на что.
+ */
+export interface ChatImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+/** Кусок составной реплики: текст или изображение. */
+export type ChatContentPart = ChatTextPart | ChatImagePart;
+
+/**
+ * Реплика диалога с языковой моделью.
+ *
+ * `content` — либо строка (обычный текстовый диалог), либо список кусков
+ * OpenAI-совместимого вида: так в модель уходит страница скана картинкой.
+ * Строковая форма остаётся основной: все текстовые промпты пользуются ею.
+ */
 export interface ChatMessage {
   role: ChatRole;
-  content: string;
+  content: string | ChatContentPart[];
 }
 
 /** Расход токенов, если провайдер его сообщает. */

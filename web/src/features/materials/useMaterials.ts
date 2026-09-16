@@ -8,8 +8,14 @@
  *
  * Соглашение о ключах: первый элемент — namespace фичи (`['materials', ...]`),
  * поэтому инвалидация по `MATERIALS_QUERY_KEY` задевает и список, и просмотр.
+ *
+ * Обработка сканов идёт на сервере в фоне и занимает минуты, поэтому список и
+ * открытый просмотр опрашиваются, пока среди материалов есть необработанные.
+ * Опрос выключается сам, как только таких материалов не осталось: постоянный
+ * фоновый запрос на открытой вкладке жёг бы батарею впустую.
  */
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -59,6 +65,30 @@ export const materialsQueryKeys = {
 /** Сколько фрагментов материала подгружается за один раз. */
 export const MATERIAL_CHUNK_PAGE_SIZE = 3;
 
+/**
+ * Как часто перезапрашивать материалы, пока сервер их обрабатывает, мс.
+ *
+ * Три секунды: прогресс сервера меняется постранично (десятые доли секунды на
+ * странице у локального распознавания, десятки секунд у зрячей модели), и чаще
+ * спрашивать незачем — пользователь всё равно не читает счётчик быстрее.
+ */
+export const MATERIALS_POLL_INTERVAL_MS = 3_000;
+
+/** Идёт ли обработка материала на сервере прямо сейчас. */
+export function isMaterialProcessing(material: Material): boolean {
+  return material.status === 'pending' || material.status === 'processing';
+}
+
+/** Есть ли в наборе материалы, состояние которых сервер ещё изменит. */
+export function hasProcessingMaterials(materials: readonly Material[]): boolean {
+  return materials.some(isMaterialProcessing);
+}
+
+/** Интервал опроса для набора материалов; `false` — опрашивать больше нечего. */
+export function materialsPollInterval(materials: readonly Material[]): number | false {
+  return hasProcessingMaterials(materials) ? MATERIALS_POLL_INTERVAL_MS : false;
+}
+
 /** Параметры списка материалов. */
 export interface UseMaterialsOptions extends ListMaterialsParams {
   /** Не ходить на сервер, пока значение `false`. */
@@ -86,6 +116,17 @@ export function useMaterials(options: UseMaterialsOptions = {}): UseMaterialsRes
     queryKey: materialsQueryKeys.list(params),
     queryFn: ({ signal }) => listMaterials(params, signal),
     enabled,
+    // Предыдущая страница держится, пока едет следующая: ни «показать ещё»,
+    // ни опрос обработки не должны схлопывать список под курсором.
+    placeholderData: keepPreviousData,
+    // Пока есть необработанные материалы — перезапрашиваем, потом останавливаемся.
+    refetchInterval: ({ state }) => materialsPollInterval(state.data?.items ?? []),
+    // В фоновой вкладке опрос не нужен: пользователь его всё равно не видит.
+    refetchIntervalInBackground: false,
+    // Зато вернувшийся на вкладку сразу видит актуальное состояние обработки.
+    // Для готового списка остаётся общее правило приложения — не перезапрашивать.
+    refetchOnWindowFocus: ({ state }) =>
+      hasProcessingMaterials(state.data?.items ?? []) ? 'always' : false,
   });
   const { data, error, isLoading, isFetching, isError, refetch } = query;
 
@@ -140,6 +181,19 @@ export function useMaterialPreview(
     getNextPageParam: (lastPage) =>
       lastPage.chunks.hasMore ? lastPage.chunks.offset + lastPage.chunks.items.length : undefined,
     enabled: materialId !== null,
+    // Открытый просмотр обрабатываемого материала обновляется сам: страница
+    // с прогрессом не должна устаревать, пока пользователь на неё смотрит.
+    refetchInterval: ({ state }) => {
+      const material = state.data?.pages.at(-1)?.material;
+
+      return material ? materialsPollInterval([material]) : false;
+    },
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: ({ state }) => {
+      const material = state.data?.pages.at(-1)?.material;
+
+      return material !== undefined && isMaterialProcessing(material) ? 'always' : false;
+    },
   });
   const {
     data,
@@ -292,6 +346,8 @@ export interface MaterialStatusText {
   isError: boolean;
   /** Обработка ещё идёт. */
   isPending: boolean;
+  /** Материал обработан и годится для урока. */
+  isSelectable: boolean;
 }
 
 /** Переводит статус материала в подписи интерфейса. */
@@ -307,7 +363,8 @@ export function useMaterialStatusText(): (material: Material) => MaterialStatusT
         hint: t(`status.${material.status}.hint`),
         serverMessage: serverMessage ? serverMessage : null,
         isError: isMaterialErrorStatus(material.status),
-        isPending: material.status === 'pending' || material.status === 'processing',
+        isPending: isMaterialProcessing(material),
+        isSelectable: material.status === 'ready',
       };
     },
     [t],

@@ -13,7 +13,7 @@
       "dropzoneLabel": "File upload area",
       "dropHint": "Drag a file here or choose it below.",
       "inputLabel": "File",
-      "formats": "TXT, MD or a PDF with a text layer, up to {{size}}. DOCX and scans are not supported.",
+      "formats": "TXT, MD or PDF, up to {{size}}. DOCX is not supported. A scanned PDF is recognised on the server, which takes longer than a file with a text layer.",
       "selected": "Selected: {{name}}, {{size}}.",
       "submit": "Upload file",
       "progress": "Uploading “{{name}}”…"
@@ -28,7 +28,8 @@
       "submit": "Add text",
       "progress": "Saving the text…"
     },
-    "success": "“{{title}}” has been added. Extracting the text may take a while.",
+    "success": "“{{title}}” has been added and is ready for lessons.",
+    "accepted": "“{{title}}” has been accepted and is being processed: the text is read page by page, and for a scan that can take several minutes. You do not have to wait here — the progress is shown in the list of materials below.",
     "validation": {
       "unsupportedFormat": "Only TXT, MD and PDF files are supported. DOCX is not.",
       "tooLarge": "The file is larger than {{size}}. Upload a smaller file or split it into parts.",
@@ -74,7 +75,7 @@
     },
     "error_no_text_layer": {
       "label": "PDF without a text layer",
-      "hint": "The pages of this PDF are images (a scan), so there is no text to read. Upload a PDF whose text can be selected, or paste the text by hand: recognising text on images is not supported."
+      "hint": "The pages of this PDF are images (a scan), and no text could be obtained from them. Upload a PDF whose text can be selected, or paste the text by hand."
     },
     "error_unsupported_format": {
       "label": "Unsupported format",
@@ -87,7 +88,9 @@
     "error_extraction_failed": {
       "label": "Extraction failed",
       "hint": "The file could not be read to the end: it may be damaged or protected. Re-save it or paste the text by hand."
-    }
+    },
+    "progressLabel": "The material is being processed",
+    "notReadyForLesson": "The material can be picked for a lesson once the processing is over."
   },
   "delete": {
     "title": "Confirm deletion",
@@ -119,7 +122,7 @@
   },
   "errors": {
     "tooLarge": "The server rejected the file: it exceeds the limit of {{size}}. Upload a smaller file or split it into parts.",
-    "unsupportedFormat": "The server rejected the file format. Upload TXT, MD or a PDF with a text layer.",
+    "unsupportedFormat": "The server rejected the file format. Upload TXT, MD or PDF.",
     "rejected": "The server rejected the material: check the title, the text and the file.",
     "deleteFailed": "The material could not be deleted."
   },

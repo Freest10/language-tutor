@@ -21,6 +21,7 @@ import { buildApp } from '../src/app.js';
 import { getDb, IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
 import { chunkText, estimateTokens } from '../src/lib/chunker.js';
+import { resetScanSettings, setScanSettings } from '../src/lib/scanExtraction.js';
 import { extractText, normalizeText } from '../src/lib/textExtraction.js';
 import {
   getChunksForLesson,
@@ -186,12 +187,18 @@ beforeAll(async () => {
   uploadDir = mkdtempSync(join(tmpdir(), 'lt-materials-'));
   setUploadDir(uploadDir);
 
+  // Этот файл проверяет синхронную обработку, поэтому распознавание сканов
+  // выключено: с ним PDF-скан уходит в фон со статусом `processing`
+  // (см. test/scan.test.ts).
+  setScanSettings({ mode: 'off' });
+
   app = await buildApp();
   await app.ready();
 });
 
 afterAll(async () => {
   await app.close();
+  resetScanSettings();
   rmSync(uploadDir, { recursive: true, force: true });
 });
 

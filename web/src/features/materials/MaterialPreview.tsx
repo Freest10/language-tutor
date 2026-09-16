@@ -5,8 +5,11 @@
  * книгой на сотни страниц, и держать её в памяти ради предпросмотра незачем.
  *
  * Для статусов `error_*` текста нет — вместо него показывается, что именно
- * не получилось и что с этим делать (допущение A16, распознавание картинок
- * в объём не входит).
+ * не получилось и что с этим делать; подробности приходят от сервера в
+ * `statusMessage`, потому что причина зависит от его настроек и платформы.
+ *
+ * Пока материал обрабатывается, панель обновляется сама (опрос живёт в
+ * `useMaterialPreview`) и показывает прогресс сервера, а не пустой текст.
  */
 import { useId } from 'react';
 
@@ -65,10 +68,16 @@ export function MaterialPreview({ materialId, onClose }: MaterialPreviewProps) {
               {status.serverMessage && <p>{status.serverMessage}</p>}
             </div>
           ) : (
-            <p className="lt-page__lead" role="status">
-              {status.label}
-              {material.status === 'ready' ? '' : `. ${status.hint}`}
-            </p>
+            <div role="status">
+              <p className="lt-page__lead">
+                {status.label}
+                {status.isSelectable ? '' : `. ${status.hint}`}
+              </p>
+              {!status.isSelectable && status.serverMessage && (
+                <p className="lt-page__lead">{status.serverMessage}</p>
+              )}
+              {status.isPending && <progress aria-label={t('status.progressLabel')} />}
+            </div>
           )}
 
           <dl className="lt-facts">
@@ -100,7 +109,7 @@ export function MaterialPreview({ materialId, onClose }: MaterialPreviewProps) {
 
           {!status.isError && (
             <>
-              {chunks.length === 0 && !isLoading && (
+              {chunks.length === 0 && !isLoading && !status.isPending && (
                 <p className="lt-placeholder">{t('preview.noText')}</p>
               )}
 

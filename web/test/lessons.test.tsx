@@ -5,7 +5,7 @@
  * тест проверяет интерфейс против контракта `@lt/shared`, а не против маршрутов.
  */
 import { QueryClient } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -187,6 +187,33 @@ function bodyOf<T>(record: FetchRecord | undefined): T {
   }
 
   return JSON.parse(record.body) as T;
+}
+
+/** Прокручивает фейковые таймеры и даёт ответам подменённого `fetch` долететь. */
+async function tick(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+/**
+ * Ждёт выполнения проверки, прокручивая фейковые таймеры мелким шагом.
+ *
+ * `waitFor` из testing-library распознаёт фейковые таймеры по глобальному
+ * `jest`, а в проекте `globals: false` и такого глобала нет.
+ */
+async function settle(check: () => void, attempts = 60): Promise<void> {
+  for (let attempt = 1; attempt < attempts; attempt += 1) {
+    try {
+      check();
+
+      return;
+    } catch {
+      await tick(10);
+    }
+  }
+
+  check();
 }
 
 /** Запросы по методу и пути. */
@@ -592,6 +619,68 @@ describe('выбор материалов', () => {
     );
 
     expect(await screen.findByRole('checkbox', { name: 'Weekly news' })).toBeEnabled();
+  });
+
+  it('сам перечитывает список, пока скан обрабатывается', async () => {
+    // Скан распознаётся в фоне минутами. Без опроса пользователь, загрузивший
+    // материал и сразу открывший создание урока, видел бы выключённый чекбокс
+    // «обрабатывается» до перезагрузки страницы.
+    let status: 'processing' | 'ready' = 'processing';
+
+    stubFetch((record) => {
+      if (record.path.endsWith('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.path === `${API_PREFIX}/materials`) {
+        return jsonResponse(
+          listPage([
+            material({
+              id: 'm-9',
+              title: 'Scanned textbook',
+              sourceType: 'pdf',
+              status,
+              statusMessage: status === 'processing' ? 'Page 3 of 48.' : null,
+              chunkCount: status === 'ready' ? 120 : 0,
+            }),
+          ]),
+        );
+      }
+
+      return jsonResponse(listPage([]));
+    });
+
+    // Фейковые таймеры включаются ДО монтирования: иначе react-query заведёт
+    // интервал опроса на настоящем таймере, и прокрутка фейкового его не тронет.
+    // userEvent с фейковыми таймерами зависает, поэтому кликаем fireEvent.
+    vi.useFakeTimers();
+
+    try {
+      renderApp('/lessons');
+
+      await settle(() =>
+        expect(screen.getByRole('button', { name: i18n.t('lessons:create.open') })).toBeEnabled(),
+      );
+      fireEvent.click(screen.getByRole('button', { name: i18n.t('lessons:create.open') }));
+
+      await settle(() =>
+        expect(screen.getByRole('checkbox', { name: /Scanned textbook/ })).toBeDisabled(),
+      );
+
+      const before = callsTo('GET', '/materials').length;
+
+      status = 'ready';
+
+      await tick(3000);
+
+      // Опрос действительно сходил на сервер и чекбокс стал доступен сам.
+      expect(callsTo('GET', '/materials').length).toBeGreaterThan(before);
+      await settle(() =>
+        expect(screen.getByRole('checkbox', { name: /Scanned textbook/ })).toBeEnabled(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

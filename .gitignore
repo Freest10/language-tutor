@@ -9,6 +9,7 @@ coverage/
 data/*.db
 data/*.db-*
 data/uploads/
+data/bin/
 models/
 .vite/
 *.tsbuildinfo

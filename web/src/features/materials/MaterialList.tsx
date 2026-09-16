@@ -4,6 +4,11 @@
  * Подтверждение удаления встроено в строку списка, а не вызывает `window.confirm`:
  * системный диалог блокирует поток, не переводится и не читается экранной читалкой
  * как часть страницы.
+ *
+ * Обработка на сервере идёт минутами: строка обрабатываемого материала показывает
+ * ход работы живой областью `role="status"` (это не ошибка, а ожидаемое состояние)
+ * и текстом прогресса самого сервера — своей доли выполнения клиент не считает.
+ * Удалить такой материал можно: ждать распознавания никто не обязан.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 
@@ -139,7 +144,11 @@ function MaterialRow({
   const titleId = useId();
 
   return (
-    <li className="lt-card" style={{ marginBottom: 'var(--lt-space-md)' }}>
+    <li
+      className="lt-card"
+      aria-busy={status.isPending}
+      style={{ marginBottom: 'var(--lt-space-md)' }}
+    >
       <h3 id={titleId} style={{ margin: 0 }}>
         {material.title}
       </h3>
@@ -157,12 +166,20 @@ function MaterialRow({
           {status.label}
         </span>
       </p>
-      {material.status !== 'ready' && (
-        <p className="lt-page__lead" role={status.isError ? 'alert' : 'status'}>
-          {status.hint}
-        </p>
+      {status.isSelectable ? (
+        status.serverMessage && <p className="lt-page__lead">{status.serverMessage}</p>
+      ) : (
+        <div role={status.isError ? 'alert' : 'status'}>
+          <p className="lt-page__lead">{status.hint}</p>
+          {status.serverMessage && <p className="lt-page__lead">{status.serverMessage}</p>}
+          {status.isPending && (
+            <>
+              <p className="lt-page__lead">{t('status.notReadyForLesson')}</p>
+              <progress aria-label={t('status.progressLabel')} />
+            </>
+          )}
+        </div>
       )}
-      {status.serverMessage && <p className="lt-page__lead">{status.serverMessage}</p>}
       <dl className="lt-facts">
         <dt>{t('list.fields.sourceType')}</dt>
         <dd>{t(`sourceType.${material.sourceType}`)}</dd>

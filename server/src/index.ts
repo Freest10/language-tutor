@@ -18,13 +18,15 @@ async function load(): Promise<{
   host: string;
   port: number;
   closeDb: () => void;
+  recoverStuckMaterials: () => number;
 }> {
   try {
     const { buildApp } = await import('./app.js');
     const { env } = await import('./config/env.js');
     const { closeDb } = await import('./db/connection.js');
+    const { recoverStuckMaterials } = await import('./services/materialService.js');
 
-    return { buildApp, host: env.host, port: env.port, closeDb };
+    return { buildApp, host: env.host, port: env.port, closeDb, recoverStuckMaterials };
   } catch (error) {
     if (error instanceof Error && error.name === ENV_VALIDATION_ERROR_NAME) {
       console.error(error.message);
@@ -36,8 +38,17 @@ async function load(): Promise<{
 }
 
 async function start(): Promise<void> {
-  const { buildApp, host, port, closeDb } = await load();
+  const { buildApp, host, port, closeDb, recoverStuckMaterials } = await load();
   const app = await buildApp();
+
+  // Фоновое распознавание сканов живёт в памяти процесса, поэтому прошлый запуск
+  // мог оставить материалы в статусе `processing` навсегда. Честная ошибка вместо
+  // вечного «обрабатывается…»: пользователь просто загрузит файл заново.
+  const interrupted = recoverStuckMaterials();
+
+  if (interrupted > 0) {
+    app.log.warn({ materials: interrupted }, 'Обработка материалов прервана прошлым запуском');
+  }
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {

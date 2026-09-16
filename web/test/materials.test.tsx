@@ -3,9 +3,12 @@
  *
  * Сервер подменяется мок-`fetch`: бэкенд материалов пишется параллельно, поэтому
  * тест проверяет интерфейс против контракта `@lt/shared`, а не против маршрутов.
+ *
+ * Обработка сканов идёт на сервере минутами, поэтому опрос проверяется фейковыми
+ * таймерами: ждать три секунды на каждый шаг в тесте незачем.
  */
 import { QueryClient } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,8 +28,8 @@ import {
 } from '@lt/shared';
 
 import { App } from '../src/App';
-import { formatBytes } from '../src/features/materials/useMaterials';
-import { i18n } from '../src/i18n';
+import { formatBytes, MATERIALS_POLL_INTERVAL_MS } from '../src/features/materials/useMaterials';
+import { i18n, resources } from '../src/i18n';
 import { routes } from '../src/router';
 
 /** Конфигурация сервера: предел размера файла берётся интерфейсом именно отсюда. */
@@ -205,8 +208,47 @@ beforeEach(async () => {
 afterEach(() => {
   // При `globals: false` автоматической очистки DOM нет — убираем её вручную.
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
+
+/** Прокручивает фейковые таймеры и даёт ответам подменённого `fetch` долететь. */
+async function tick(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+
+/**
+ * Ждёт выполнения проверки, прокручивая фейковые таймеры мелким шагом.
+ *
+ * `waitFor` из testing-library здесь не годится: фейковые таймеры он распознаёт
+ * по глобальному `jest`, а в проекте `globals: false` и такого глобала нет.
+ */
+async function settle(check: () => void, attempts = 40): Promise<void> {
+  for (let attempt = 1; attempt < attempts; attempt += 1) {
+    try {
+      check();
+
+      return;
+    } catch {
+      await tick(10);
+    }
+  }
+
+  check();
+}
+
+/** Плоские ключи словаря; суффиксы множественного числа отброшены. */
+function translationKeys(node: unknown, prefix = ''): string[] {
+  if (typeof node !== 'object' || node === null) {
+    return [prefix.replace(/_(one|few|many|other)$/, '')];
+  }
+
+  return Object.entries(node).flatMap(([key, value]) =>
+    translationKeys(value, prefix === '' ? key : `${prefix}.${key}`),
+  );
+}
 
 describe('загрузка материала', () => {
   it('отправляет файл частью «file» и показывает его в списке', async () => {
@@ -516,5 +558,259 @@ describe('просмотр материала', () => {
     expect(
       screen.getByText(i18n.t('materials:preview.shown', { shown: 4, total: 4 })),
     ).toBeInTheDocument();
+  });
+});
+
+describe('обработка материала на сервере', () => {
+  /** Скан, который сервер ещё обрабатывает: текста и фрагментов пока нет. */
+  function scan(overrides: Partial<Material> = {}): Material {
+    return material({
+      id: 'm-9',
+      title: 'Scanned textbook',
+      sourceType: 'pdf',
+      status: 'processing',
+      statusMessage: 'page 12 of 48',
+      originalFileName: 'textbook.pdf',
+      mimeType: 'application/pdf',
+      charCount: 0,
+      chunkCount: 0,
+      ...overrides,
+    });
+  }
+
+  it('перечитывает список сам, пока идёт обработка, и прекращает опрос на готовом', async () => {
+    vi.useFakeTimers();
+
+    let current = scan();
+
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(CONFIG_FIXTURE)
+        : jsonResponse(listPage([current])),
+    );
+
+    renderMaterials();
+
+    await settle(() => {
+      expect(screen.getByText(i18n.t('materials:status.processing.label'))).toBeInTheDocument();
+    });
+
+    const beforePolling = listRequestCount();
+
+    await tick(MATERIALS_POLL_INTERVAL_MS);
+
+    expect(listRequestCount()).toBeGreaterThan(beforePolling);
+
+    // Сервер дочитал скан: строка обязана обновиться без действий пользователя.
+    current = scan({ status: 'ready', statusMessage: null, charCount: 4200, chunkCount: 5 });
+
+    await tick(MATERIALS_POLL_INTERVAL_MS);
+    await settle(() => {
+      expect(screen.getByText(i18n.t('materials:status.ready.label'))).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(i18n.t('materials:status.processing.label'))).not.toBeInTheDocument();
+
+    // Обрабатываемых материалов не осталось — опрос обязан остановиться.
+    const afterReady = listRequestCount();
+
+    await tick(MATERIALS_POLL_INTERVAL_MS * 5);
+
+    expect(listRequestCount()).toBe(afterReady);
+  });
+
+  it('обновляет открытый просмотр материала, пока идёт обработка', async () => {
+    vi.useFakeTimers();
+
+    let current = scan();
+    const chunks = [chunk('m-9', 0)];
+
+    stubFetch((record) => {
+      if (record.url.includes('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.url.includes('/materials/m-9')) {
+        return jsonResponse(
+          detailPage(current, current.status === 'ready' ? chunks : [], record.url),
+        );
+      }
+
+      return jsonResponse(listPage([current]));
+    });
+
+    renderMaterials();
+
+    await settle(() => {
+      expect(
+        screen.getByRole('heading', { level: 3, name: 'Scanned textbook' }),
+      ).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('materials:list.actions.preview') }));
+
+    // Прогресс сервера виден и в панели просмотра, а не только в списке.
+    await settle(() => {
+      expect(screen.getAllByText('page 12 of 48').length).toBeGreaterThan(1);
+    });
+
+    current = scan({ status: 'ready', statusMessage: null, charCount: 40, chunkCount: 1 });
+
+    await tick(MATERIALS_POLL_INTERVAL_MS);
+    await settle(() => {
+      expect(screen.getByText(chunks[0]!.content)).toBeInTheDocument();
+    });
+
+    const afterReady = calls.length;
+
+    await tick(MATERIALS_POLL_INTERVAL_MS * 5);
+
+    expect(calls.length).toBe(afterReady);
+  });
+
+  it('показывает прогресс сервера в строке материала живой областью', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(CONFIG_FIXTURE)
+        : jsonResponse(listPage([scan()])),
+    );
+
+    renderMaterials();
+
+    await screen.findByRole('heading', { level: 3, name: 'Scanned textbook' });
+
+    const row = rowOf('Scanned textbook');
+    const progress = within(row).getByRole('status');
+
+    expect(within(progress).getByText('page 12 of 48')).toBeInTheDocument();
+    expect(
+      within(progress).getByText(i18n.t('materials:status.processing.hint')),
+    ).toBeInTheDocument();
+    expect(within(row).getByRole('progressbar')).toBeInTheDocument();
+    // Обработка — не ошибка: строка не должна кричать `alert`.
+    expect(within(row).queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('не выдаёт обрабатываемый материал за готовый, но удалить его даёт', async () => {
+    let items = [scan()];
+
+    stubFetch((record) => {
+      if (record.url.includes('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.method === 'DELETE') {
+        items = [];
+
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse(listPage(items));
+    });
+
+    const { user } = renderMaterials();
+
+    await screen.findByRole('heading', { level: 3, name: 'Scanned textbook' });
+
+    const row = rowOf('Scanned textbook');
+
+    expect(within(row).getByText(i18n.t('materials:status.notReadyForLesson'))).toBeInTheDocument();
+    expect(within(row).queryByText(i18n.t('materials:status.ready.label'))).not.toBeInTheDocument();
+    expect(within(row).queryByText(i18n.t('materials:status.ready.hint'))).not.toBeInTheDocument();
+    expect(row).toHaveAttribute('aria-busy', 'true');
+
+    const remove = within(row).getByRole('button', { name: i18n.t('actions.delete') });
+
+    expect(remove).toBeEnabled();
+
+    await user.click(remove);
+    await user.click(screen.getByRole('button', { name: i18n.t('materials:delete.confirm') }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { level: 3, name: 'Scanned textbook' }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(calls.some((call) => call.method === 'DELETE' && call.url.endsWith('/m-9'))).toBe(true);
+  });
+
+  it('говорит о принятом файле, что он обрабатывается и ждать здесь не нужно', async () => {
+    let items: Material[] = [];
+
+    stubFetch((record) => {
+      if (record.url.includes('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.method === 'POST') {
+        items = [scan()];
+
+        return jsonResponse(scan());
+      }
+
+      if (record.url.includes('/materials/m-9')) {
+        return jsonResponse(detailPage(scan(), [], record.url));
+      }
+
+      return jsonResponse(listPage(items));
+    });
+
+    const { user } = renderMaterials();
+
+    await screen.findByText(i18n.t('materials:list.empty'));
+
+    await user.upload(
+      screen.getByLabelText(i18n.t('materials:uploader.file.inputLabel')),
+      new File(['%PDF-1.7 scan'], 'textbook.pdf', { type: 'application/pdf' }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('materials:uploader.file.submit') }),
+    );
+
+    expect(
+      await screen.findByText(i18n.t('materials:uploader.accepted', { title: 'Scanned textbook' })),
+    ).toBeInTheDocument();
+    // Обещать готовность нельзя: сервер только принял файл.
+    expect(
+      screen.queryByText(i18n.t('materials:uploader.success', { title: 'Scanned textbook' })),
+    ).not.toBeInTheDocument();
+  });
+
+  it('объясняет нераспознанный скан общей формулировкой и причиной от сервера', async () => {
+    const reason = 'Text recognition is turned off in the server settings.';
+
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(CONFIG_FIXTURE)
+        : jsonResponse(listPage([scan({ status: 'error_no_text_layer', statusMessage: reason })])),
+    );
+
+    renderMaterials();
+
+    await screen.findByRole('heading', { level: 3, name: 'Scanned textbook' });
+
+    const banner = within(rowOf('Scanned textbook')).getByRole('alert');
+
+    expect(
+      within(banner).getByText(i18n.t('materials:status.error_no_text_layer.hint')),
+    ).toBeInTheDocument();
+    // Подробности — от сервера: причина зависит от его настроек и платформы.
+    expect(within(banner).getByText(reason)).toBeInTheDocument();
+  });
+
+  it('не утверждает, что распознавание текста на картинках не поддерживается', () => {
+    for (const locale of ['ru', 'en'] as const) {
+      const hint = i18n.getFixedT(locale, 'materials')('status.error_no_text_layer.hint');
+
+      expect(hint).not.toMatch(/не поддерживается|not supported/i);
+    }
+  });
+
+  it('держит наборы ключей materials.json одинаковыми в en и ru', () => {
+    const en = [...new Set(translationKeys(resources.en.materials))].sort();
+    const ru = [...new Set(translationKeys(resources.ru.materials))].sort();
+
+    expect(ru).toEqual(en);
   });
 });
