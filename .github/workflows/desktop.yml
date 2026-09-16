@@ -9,6 +9,10 @@
 # когда они появятся, — в docs/desktop.md.
 name: desktop
 
+# Запускается вручную: Actions → desktop → Run workflow (ветка на выбор) либо
+# командой `gh workflow run desktop.yml --ref <ветка>`. Готовые установщики
+# лежат в артефактах прогона: language-tutor-macOS (.dmg) и
+# language-tutor-Windows (.exe).
 on:
   # Запуск руками: собирать установщики на каждый коммит незачем — это долго
   # и упирается в закреплённую версию whisper.cpp, которая меняется редко.
