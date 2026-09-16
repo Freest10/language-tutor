@@ -651,8 +651,17 @@ export function useLessonSession(lessonId: string): UseLessonSessionResult {
     void messagesQuery.refetch();
   }, [lessonQuery, messagesQuery]);
 
+  // Отказ чтения ленты показывается как отказ восстановления: сама комната жива.
+  // Объявляется ДО retry: иначе повтор ветвится по пустому failure и ветка
+  // 'restore' становится недостижимой — кнопка «Повторить» под баннером
+  // молча ничего не делает.
+  const restoreFailure: LessonSessionFailure | null =
+    !failure && messagesQuery.error ? { action: 'restore', error: messagesQuery.error } : null;
+
+  const activeFailure = failure ?? restoreFailure;
+
   const retry = useCallback((): void => {
-    switch (failure?.action) {
+    switch (activeFailure?.action) {
       case 'start':
         startMutation.mutate();
         break;
@@ -684,18 +693,14 @@ export function useLessonSession(lessonId: string): UseLessonSessionResult {
         break;
     }
   }, [
+    activeFailure,
     advanceMutation,
     attemptMutation,
     completeMutation,
-    failure,
     refresh,
     startMutation,
     turnMutation,
   ]);
-
-  // Отказ чтения ленты показывается как отказ восстановления: сама комната жива.
-  const restoreFailure: LessonSessionFailure | null =
-    !failure && messagesQuery.error ? { action: 'restore', error: messagesQuery.error } : null;
 
   const isThinking =
     startMutation.isPending ||
@@ -725,7 +730,7 @@ export function useLessonSession(lessonId: string): UseLessonSessionResult {
     isThinking,
     isError: lessonQuery.isError,
     loadError: lessonQuery.error,
-    failure: failure ?? restoreFailure,
+    failure: activeFailure,
     start,
     sendTurn,
     advanceStep,

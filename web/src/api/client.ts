@@ -292,7 +292,7 @@ async function requestJson<T>(
   const response = await fetchApi(path, plan);
 
   if (response.status === 204 || response.headers.get('content-length') === '0') {
-    return (schema ? schema.parse(undefined) : undefined) as T;
+    return schema ? parseWithSchema(schema, undefined, response.status) : (undefined as T);
   }
 
   let data: unknown;
@@ -313,13 +313,25 @@ async function requestJson<T>(
     return data as T;
   }
 
+  return parseWithSchema(schema, data, response.status);
+}
+
+/**
+ * Разбор тела по схеме с единым видом отказа.
+ *
+ * Вынесено в помощник намеренно: пустое тело (204 / content-length: 0) и
+ * непустое должны давать одинаковый ApiError, иначе один и тот же класс
+ * расхождения со схемой приходил бы вызывающему коду то как ApiError, то как
+ * сырой ZodError — в зависимости от того, прислал сервер тело или нет.
+ */
+function parseWithSchema<T>(schema: ResponseParser<T>, value: unknown, status: number): T {
   try {
-    return schema.parse(data);
+    return schema.parse(value);
   } catch (error) {
     throw new ApiError({
       code: 'internal_error',
       message: 'Ответ сервера не соответствует ожидаемой схеме',
-      status: response.status,
+      status,
       details: { reason: 'schema_mismatch', cause: String(error) },
       clientReason: 'invalid_response',
     });

@@ -20,21 +20,30 @@ import {
   DEFAULT_DAILY_MINUTES,
   KNOWN_LANGUAGE_CODES,
   LANGUAGE_LABELS,
+  type AdvanceLessonStepResponse,
   type ApiErrorResponse,
   type AppConfig,
+  type CompleteLessonResponse,
   type Correction,
+  type CreateExerciseAttemptRequest,
   type CreateExerciseAttemptResponse,
+  type ErrorLogEntry,
   type Exercise,
   type ExerciseAttempt,
   type GetLessonResponse,
   type Lesson,
   type LessonMessage,
   type LessonPlanStep,
+  type LessonSummary,
   type LessonTurnRequest,
   type LessonTurnResponse,
+  type LevelHistoryEntry,
+  type StartLessonResponse,
+  type VocabularyItem,
 } from '@lt/shared';
 
 import { App } from '../src/App';
+import { LESSON_TURN_MAX_LENGTH } from '../src/api/lessonSession';
 import { i18n } from '../src/i18n';
 import { lessonRoomPath, routes } from '../src/router';
 
@@ -375,8 +384,12 @@ function stubRoom(options: {
   detail?: GetLessonResponse;
   messages?: LessonMessage[];
   hasMore?: boolean;
+  onMessages?: (record: FetchRecord) => Response | Promise<Response>;
+  onStart?: (record: FetchRecord) => Response | Promise<Response>;
   onTurn?: (record: FetchRecord) => Response | Promise<Response>;
+  onAdvance?: (record: FetchRecord) => Response | Promise<Response>;
   onAttempt?: (record: FetchRecord) => Response | Promise<Response>;
+  onComplete?: (record: FetchRecord) => Response | Promise<Response>;
 }): void {
   const detail = options.detail ?? {
     lesson: RUNNING_LESSON,
@@ -390,11 +403,26 @@ function stubRoom(options: {
     }
 
     if (record.path === `${API_PREFIX}/lessons/l-1/messages`) {
-      return jsonResponse(listPage(options.messages ?? [GREETING], options.hasMore ?? false));
+      return (
+        options.onMessages?.(record) ??
+        jsonResponse(listPage(options.messages ?? [GREETING], options.hasMore ?? false))
+      );
+    }
+
+    if (record.path === `${API_PREFIX}/lessons/l-1/start`) {
+      return options.onStart?.(record) ?? errorResponse('not_found', 404);
     }
 
     if (record.path === `${API_PREFIX}/lessons/l-1/turns`) {
       return options.onTurn?.(record) ?? jsonResponse(turnResponse('…'));
+    }
+
+    if (record.path === `${API_PREFIX}/lessons/l-1/complete`) {
+      return options.onComplete?.(record) ?? errorResponse('not_found', 404);
+    }
+
+    if (record.path.endsWith('/advance')) {
+      return options.onAdvance?.(record) ?? errorResponse('not_found', 404);
     }
 
     if (record.path.endsWith('/attempts')) {
@@ -407,6 +435,39 @@ function stubRoom(options: {
 
     return errorResponse('not_found', 404);
   });
+}
+
+/** Ответ на проверку задания с заполненными по умолчанию полями схемы. */
+function checkedAttempt(options: {
+  exercise: Exercise;
+  answer: string;
+  isCorrect?: boolean;
+  nextExercise?: Exercise | null;
+  lesson?: Lesson;
+  messages?: LessonMessage[];
+}): CreateExerciseAttemptResponse {
+  const isCorrect = options.isCorrect ?? true;
+
+  return {
+    attempt: attempt({
+      id: `a-${options.exercise.id}`,
+      exerciseId: options.exercise.id,
+      answer: options.answer,
+      isCorrect,
+      score: isCorrect ? 1 : 0.4,
+      corrections: isCorrect ? [] : [CORRECTION],
+      feedback: isCorrect ? 'Верно.' : 'Почти получилось: подведёт только время глагола.',
+    }),
+    exercise: options.exercise,
+    lesson: options.lesson ?? RUNNING_LESSON,
+    nextExercise: options.nextExercise ?? null,
+    messages: options.messages ?? [],
+  };
+}
+
+/** Панель задания: внутри неё и ищем поле ответа, кнопки и разбор. */
+function exercisePanel(): HTMLElement {
+  return screen.getByRole('region', { name: i18n.t('lessonRoom:exercise.title') });
 }
 
 /** Поле ввода реплики ученика. */
@@ -625,5 +686,660 @@ describe('задания урока', () => {
         lastCall('POST', '/lessons/l-1/exercises/e-1/attempts'),
       ),
     ).toMatchObject({ answer: 'I go to school yesterday', source: 'text' });
+  });
+
+  it('множественный выбор не отправляется, пока вариант не выбран', async () => {
+    const task = exercise({
+      id: 'e-mc',
+      type: 'multiple_choice',
+      prompt: 'Which sentence is in the past simple?',
+      instructions: 'Pick one option.',
+      options: ['I go to school yesterday', 'I went to school yesterday'],
+      expectedAnswer: 'I went to school yesterday',
+    });
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [task], attempts: [] },
+      onAttempt: () =>
+        jsonResponse(checkedAttempt({ exercise: task, answer: 'I went to school yesterday' }), 201),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const panel = exercisePanel();
+
+    // Варианты ответа — радиогруппа: свободного поля у такого задания нет.
+    expect(
+      within(panel).queryByLabelText(i18n.t('lessonRoom:exercise.answer.label')),
+    ).not.toBeInTheDocument();
+    expect(within(panel).getAllByRole('radio')).toHaveLength(2);
+
+    await user.click(
+      within(panel).getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      i18n.t('lessonRoom:exercise.errors.noChoice'),
+    );
+    expect(callsTo('POST', '/lessons/l-1/exercises/e-mc/attempts')).toHaveLength(0);
+
+    await user.click(within(panel).getByRole('radio', { name: 'I went to school yesterday' }));
+    await user.click(
+      within(panel).getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    expect(await screen.findByText(i18n.t('lessonRoom:feedback.correct'))).toBeInTheDocument();
+    expect(
+      bodyOf<CreateExerciseAttemptRequest>(
+        lastCall('POST', '/lessons/l-1/exercises/e-mc/attempts'),
+      ),
+    ).toMatchObject({ answer: 'I went to school yesterday', source: 'text' });
+  });
+
+  it('подстановка показывает вид задания и подсказки', async () => {
+    const task = exercise({
+      id: 'e-fb',
+      type: 'fill_blank',
+      prompt: 'Yesterday I ___ to school.',
+      instructions: 'Put the verb into the past simple.',
+      hints: ['the verb is go'],
+      expectedAnswer: 'went',
+    });
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [task], attempts: [] },
+      onAttempt: () => jsonResponse(checkedAttempt({ exercise: task, answer: 'went' }), 201),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const panel = exercisePanel();
+
+    expect(
+      within(panel).getByText(i18n.t('lessonRoom:exercise.types.fill_blank')),
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(task.instructions as string)).toBeInTheDocument();
+
+    const hints = within(panel).getByRole('list', { name: i18n.t('lessonRoom:exercise.hints') });
+
+    expect(within(hints).getByText('the verb is go')).toBeInTheDocument();
+
+    await user.type(
+      within(panel).getByLabelText(i18n.t('lessonRoom:exercise.answer.label')),
+      'went',
+    );
+    await user.click(
+      within(panel).getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    expect(await screen.findByText(i18n.t('lessonRoom:feedback.correct'))).toBeInTheDocument();
+    expect(
+      bodyOf<CreateExerciseAttemptRequest>(
+        lastCall('POST', '/lessons/l-1/exercises/e-fb/attempts'),
+      ),
+    ).toMatchObject({ answer: 'went', source: 'text' });
+  });
+
+  it('после разбора вопроса-ответа открывается следующее задание', async () => {
+    const first = exercise({
+      id: 'e-qa',
+      type: 'qa',
+      prompt: 'What did you do last weekend?',
+      instructions: 'Answer in two sentences.',
+      expectedAnswer: null,
+    });
+    const second = exercise({
+      id: 'e-qa-2',
+      order: 1,
+      type: 'translate',
+      prompt: 'Вчера мы ходили к озеру.',
+    });
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [first], attempts: [] },
+      onAttempt: () =>
+        jsonResponse(
+          checkedAttempt({
+            exercise: first,
+            answer: 'We went to the lake and cooked fish.',
+            nextExercise: second,
+          }),
+          201,
+        ),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(first.prompt)).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('lessonRoom:exercise.types.qa'))).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText(i18n.t('lessonRoom:exercise.answer.label')),
+      'We went to the lake and cooked fish.',
+    );
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    expect(await screen.findByText(i18n.t('lessonRoom:feedback.correct'))).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.next') }),
+    );
+
+    expect(await screen.findByText(second.prompt)).toBeInTheDocument();
+    expect(screen.queryByText(first.prompt)).not.toBeInTheDocument();
+  });
+
+  it('свободная речь отвечается голосом и уходит с пометкой voice', async () => {
+    const task = exercise({
+      id: 'e-fs',
+      type: 'free_speech',
+      prompt: 'Tell me about your weekend.',
+      expectedAnswer: null,
+    });
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [task], attempts: [] },
+      onAttempt: () =>
+        jsonResponse(
+          checkedAttempt({ exercise: task, answer: 'i go to school yesterday', isCorrect: false }),
+          201,
+        ),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const panel = exercisePanel();
+    const field = within(panel).getByLabelText(i18n.t('lessonRoom:exercise.answer.label'));
+
+    expect(
+      within(panel).getByText(i18n.t('lessonRoom:exercise.answer.voiceHint')),
+    ).toBeInTheDocument();
+
+    // У свободной речи своя кнопка удержания — рядом с полем ответа, а не только в диалоге.
+    await user.click(within(panel).getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+
+    // Расшифровка сперва попадает в поле: отправлять её вслепую нельзя.
+    await waitFor(() => {
+      expect(field).toHaveValue('i go to school yesterday');
+    });
+
+    await user.click(
+      within(panel).getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    await waitFor(() => {
+      expect(callsTo('POST', '/lessons/l-1/exercises/e-fs/attempts')).toHaveLength(1);
+    });
+
+    expect(
+      bodyOf<CreateExerciseAttemptRequest>(
+        lastCall('POST', '/lessons/l-1/exercises/e-fs/attempts'),
+      ),
+    ).toMatchObject({ answer: 'i go to school yesterday', source: 'voice', durationMs: 2400 });
+    expect(await screen.findByText(CORRECTION.explanation)).toBeInTheDocument();
+  });
+
+  it('во время проверки ответа повторная отправка заблокирована', async () => {
+    const task = exercise({ id: 'e-1', prompt: 'Вчера я ходил в школу.' });
+    const pending = deferred<Response>();
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [task], attempts: [] },
+      onAttempt: () => pending.promise,
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const field = screen.getByLabelText(i18n.t('lessonRoom:exercise.answer.label'));
+
+    await user.type(field, 'I went to school yesterday');
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    const checking = await screen.findByRole('button', {
+      name: i18n.t('lessonRoom:exercise.actions.checking'),
+    });
+
+    expect(checking).toBeDisabled();
+    expect(field).toBeDisabled();
+
+    await user.click(checking);
+
+    expect(callsTo('POST', '/lessons/l-1/exercises/e-1/attempts')).toHaveLength(1);
+
+    pending.resolve(
+      jsonResponse(checkedAttempt({ exercise: task, answer: 'I went to school yesterday' }), 201),
+    );
+
+    expect(await screen.findByText(i18n.t('lessonRoom:feedback.correct'))).toBeInTheDocument();
+    expect(callsTo('POST', '/lessons/l-1/exercises/e-1/attempts')).toHaveLength(1);
+  });
+});
+
+describe('ввод реплики', () => {
+  it('пустая реплика не уходит на сервер', async () => {
+    stubRoom({});
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+    const field = await composerField();
+
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('lessonRoom:composer.errors.empty'),
+    );
+    expect(callsTo('POST', '/lessons/l-1/turns')).toHaveLength(0);
+
+    // Одни пробелы — тоже пустая реплика.
+    await user.type(field, '   ');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('lessonRoom:composer.errors.empty'),
+    );
+    expect(callsTo('POST', '/lessons/l-1/turns')).toHaveLength(0);
+  });
+
+  it('реплика длиннее предела схемы не уходит на сервер', async () => {
+    stubRoom({});
+
+    // Длинная диктовка попадает в поле целиком: расшифровку никто не обрезает.
+    voiceStub.state.result = {
+      text: 'a'.repeat(LESSON_TURN_MAX_LENGTH + 1),
+      provider: 'browser',
+      language: 'en',
+      durationMs: 60_000,
+    };
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+    const field = await composerField();
+
+    await user.click(screen.getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+
+    await waitFor(() => {
+      expect(field.value).toHaveLength(LESSON_TURN_MAX_LENGTH + 1);
+    });
+
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      i18n.t('lessonRoom:composer.errors.tooLong', { max: LESSON_TURN_MAX_LENGTH }),
+    );
+    expect(callsTo('POST', '/lessons/l-1/turns')).toHaveLength(0);
+    // Набранное не пропадает: ученику есть что сократить.
+    expect(field.value).toHaveLength(LESSON_TURN_MAX_LENGTH + 1);
+  });
+
+  it('при включённой автоозвучке новый ответ тьютора произносится один раз', async () => {
+    stubRoom({ onTurn: () => jsonResponse(turnResponse('We went to the lake')) });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+    // Восстановленную ленту не переозвучиваем: голос дают только новые ответы.
+    expect(ttsStub.speak).not.toHaveBeenCalled();
+
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    await waitFor(() => {
+      expect(ttsStub.speak).toHaveBeenCalledTimes(1);
+    });
+
+    expect(ttsStub.speak).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Sounds nice! What did you do there?' }),
+    );
+  });
+
+  it('выключенная автоозвучка молчит и переживает перемонтирование', async () => {
+    stubRoom({ onTurn: () => jsonResponse(turnResponse('We went to the lake')) });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+    const toggle = await screen.findByLabelText(i18n.t('lessonRoom:composer.autoSpeak.label'));
+
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+
+    expect(toggle).not.toBeChecked();
+
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(await screen.findByText('Sounds nice! What did you do there?')).toBeInTheDocument();
+    expect(ttsStub.speak).not.toHaveBeenCalled();
+
+    // Выбор хранится в браузере: после перезагрузки страницы он тот же.
+    cleanup();
+    renderApp(lessonRoomPath('l-1'));
+
+    expect(
+      await screen.findByLabelText(i18n.t('lessonRoom:composer.autoSpeak.label')),
+    ).not.toBeChecked();
+  });
+});
+
+describe('состояние комнаты', () => {
+  it('урок из черновика запускается и открывает диалог', async () => {
+    const draft = lesson({
+      ...RUNNING_LESSON,
+      status: 'draft',
+      currentStepId: null,
+      startedAt: null,
+    });
+    const started: StartLessonResponse = {
+      lesson: RUNNING_LESSON,
+      messages: [GREETING],
+      currentStep: RUNNING_LESSON.plan[0],
+    };
+
+    stubRoom({
+      detail: { lesson: draft, exercises: [], attempts: [] },
+      messages: [],
+      onStart: () => jsonResponse(started),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+    const startButton = await screen.findByRole('button', {
+      name: i18n.t('lessonRoom:intro.start'),
+    });
+
+    // Пока урок не начат, говорить не с кем.
+    expect(screen.queryByLabelText(i18n.t('lessonRoom:composer.label'))).not.toBeInTheDocument();
+
+    await user.click(startButton);
+
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+    expect(await composerField()).toBeInTheDocument();
+    expect(callsTo('POST', '/lessons/l-1/start')).toHaveLength(1);
+  });
+
+  it('свежий урок из ответа применяется без повторного чтения урока', async () => {
+    const task = exercise({ id: 'e-new', stepId: 's-2', prompt: 'Вчера мы ходили к озеру.' });
+    const moved = lesson({
+      ...RUNNING_LESSON,
+      currentStepId: 's-2',
+      plan: [
+        step({ id: 's-1', order: 0, title: 'Warm-up', type: 'warmup', status: 'completed' }),
+        step({ id: 's-2', order: 1, title: 'Role play', type: 'speaking', status: 'in_progress' }),
+      ],
+    });
+
+    stubRoom({
+      onTurn: () =>
+        jsonResponse({
+          ...turnResponse('We went to the lake'),
+          lesson: moved,
+          currentStep: moved.plan[1],
+          exercises: [task],
+        } satisfies LessonTurnResponse),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    // Урок и задания пришли ответом на реплику: перечитывать урок незачем.
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const current = screen.getByText('Role play').closest('li');
+
+    expect(current).not.toBeNull();
+    expect(current).toHaveAttribute('aria-current', 'step');
+    expect(callsTo('GET', '/lessons/l-1')).toHaveLength(1);
+  });
+
+  it('повтор неудавшейся реплики заменяет её сохранённой', async () => {
+    stubRoom({
+      onTurn: () =>
+        callsTo('POST', '/lessons/l-1/turns').length === 1
+          ? errorResponse('upstream_error', 502)
+          : jsonResponse(turnResponse('We went to the lake')),
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(
+      await screen.findByText(i18n.t('lessonRoom:transcript.notDelivered')),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessonRoom:transcript.actions.retryTurn') }),
+    );
+
+    expect(await screen.findByText('Sounds nice! What did you do there?')).toBeInTheDocument();
+    expect(
+      screen.queryByText(i18n.t('lessonRoom:transcript.notDelivered')),
+    ).not.toBeInTheDocument();
+    // Реплика в ленте одна: местная сменилась сохранённой, а не удвоилась.
+    expect(screen.getAllByText('We went to the lake')).toHaveLength(1);
+  });
+
+  it('переход к следующему шагу открывает его реплики и задание', async () => {
+    const task = exercise({ id: 'e-s2', stepId: 's-2', prompt: 'Составьте диалог в магазине.' });
+    const moved = lesson({
+      ...RUNNING_LESSON,
+      currentStepId: 's-2',
+      plan: [
+        step({ id: 's-1', order: 0, title: 'Warm-up', type: 'warmup', status: 'completed' }),
+        step({ id: 's-2', order: 1, title: 'Role play', type: 'speaking', status: 'in_progress' }),
+      ],
+    });
+    const opening = message({
+      id: 'm-4',
+      role: 'tutor',
+      content: 'Now let us play a small scene.',
+      stepId: 's-2',
+      createdAt: '2026-09-01T10:10:00.000Z',
+    });
+    const advanced: AdvanceLessonStepResponse = {
+      lesson: moved,
+      currentStep: moved.plan[1],
+      messages: [opening],
+      exercises: [task],
+    };
+
+    stubRoom({ onAdvance: () => jsonResponse(advanced) });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessonRoom:steps.actions.advance') }),
+    );
+
+    expect(await screen.findByText(opening.content)).toBeInTheDocument();
+    expect(screen.getByText(task.prompt)).toBeInTheDocument();
+    expect(bodyOf<{ status: string }>(lastCall('POST', '/lessons/l-1/steps/s-1/advance'))).toEqual({
+      status: 'completed',
+    });
+
+    const current = screen.getByText('Role play').closest('li');
+
+    expect(current).toHaveAttribute('aria-current', 'step');
+  });
+
+  it('отказ чтения ленты объясняется отдельно и не рушит комнату', async () => {
+    stubRoom({ onMessages: () => errorResponse('internal_error', 500) });
+
+    renderApp(lessonRoomPath('l-1'));
+    const alert = await screen.findByRole('alert');
+
+    expect(
+      within(alert).getByText(i18n.t('lessonRoom:errors.actions.restore')),
+    ).toBeInTheDocument();
+    expect(within(alert).getByText(i18n.t('lessonRoom:errors.progressKept'))).toBeInTheDocument();
+
+    // Повторить восстановление ленты предлагается кнопкой рядом с объяснением.
+    expect(
+      within(alert).getByRole('button', { name: i18n.t('common:actions.retry') }),
+    ).toBeEnabled();
+
+    // Отказ ленты не рушит комнату: план урока и поле ввода на месте.
+    expect(
+      screen.getByRole('navigation', { name: i18n.t('lessonRoom:steps.title') }),
+    ).toBeInTheDocument();
+    expect(await composerField()).toBeInTheDocument();
+  });
+
+  it('повтор после отказа ленты перечитывает её и восстанавливает реплики', async () => {
+    // Регрессия: retry() ветвился по состоянию failure, а отказ ленты в него не
+    // попадал — ветка 'restore' была недостижима, и кнопка «Повторить» молча
+    // ничего не делала. Помогала только перезагрузка страницы: повтор запроса
+    // выключен для 500 (ретраятся лишь обрыв связи и 503).
+    let failNext = true;
+
+    stubRoom({
+      onMessages: () => {
+        if (failNext) {
+          failNext = false;
+
+          return errorResponse('internal_error', 500);
+        }
+
+        return jsonResponse(listPage([GREETING]));
+      },
+    });
+
+    renderApp(lessonRoomPath('l-1'));
+
+    const alert = await screen.findByRole('alert');
+    const retryButton = within(alert).getByRole('button', {
+      name: i18n.t('common:actions.retry'),
+    });
+
+    await userEvent.click(retryButton);
+
+    // Лента перечитана и показана, объяснение отказа ушло.
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('завершение урока показывает итог, изменение уровня и записанное в прогресс', async () => {
+    const summary: LessonSummary = {
+      text: 'You kept the past simple almost everywhere and told a long story.',
+      strengths: ['Long sentences without long pauses'],
+      weaknesses: ['Irregular verbs'],
+      recommendations: ['Retell the same story once more'],
+      newVocabulary: [],
+      exercisesTotal: 4,
+      exercisesCorrect: 3,
+      accuracy: 0.75,
+      durationMinutes: 21,
+    };
+    const levelChange: LevelHistoryEntry = {
+      id: 'lh-3',
+      fromLevel: 'B1',
+      toLevel: 'B2',
+      direction: 'up',
+      source: 'progress',
+      confidence: 0.82,
+      reason: 'Three lessons in a row above 85 percent of correct answers.',
+      metrics: {
+        accuracy: 0.88,
+        lessonsConsidered: 3,
+        lessonsSinceLastChange: 4,
+        exercisesEvaluated: 42,
+        windowFrom: '2026-08-20T10:00:00.000Z',
+        windowTo: '2026-09-01T10:00:00.000Z',
+      },
+      changedAt: '2026-09-01T11:00:00.000Z',
+      createdAt: '2026-09-01T11:00:00.000Z',
+    };
+    const word: VocabularyItem = {
+      id: 'v-1',
+      term: 'to hike',
+      translation: 'ходить в поход',
+      language: 'en',
+      translationLanguage: 'ru',
+      partOfSpeech: null,
+      transcription: null,
+      example: null,
+      level: 'B1',
+      status: 'new',
+      timesSeen: 1,
+      timesCorrect: 0,
+      lessonId: 'l-1',
+      materialId: null,
+      firstSeenAt: '2026-09-01T10:30:00.000Z',
+      lastSeenAt: '2026-09-01T10:30:00.000Z',
+      createdAt: '2026-09-01T10:30:00.000Z',
+      updatedAt: '2026-09-01T10:30:00.000Z',
+    };
+    const loggedError: ErrorLogEntry = {
+      ...CORRECTION,
+      id: 'el-1',
+      language: 'en',
+      lessonId: 'l-1',
+      stepId: 's-1',
+      exerciseId: null,
+      messageId: 'm-2',
+      occurredAt: '2026-09-01T10:20:00.000Z',
+      createdAt: '2026-09-01T10:20:00.000Z',
+    };
+    const completed: CompleteLessonResponse = {
+      lesson: lesson({
+        ...RUNNING_LESSON,
+        status: 'completed',
+        currentStepId: null,
+        summary,
+        completedAt: '2026-09-01T11:00:00.000Z',
+      }),
+      summary,
+      levelChange,
+      vocabularyAdded: [word],
+      errorsLogged: [loggedError],
+    };
+
+    stubRoom({ onComplete: () => jsonResponse(completed) });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:actions.complete') }));
+
+    expect(
+      await screen.findByRole('heading', { name: i18n.t('lessonRoom:summary.title') }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(summary.text)).toBeInTheDocument();
+    expect(
+      screen.getByText(i18n.t('lessonRoom:summary.accuracy', { percent: 75 })),
+    ).toBeInTheDocument();
+    // Обоснование изменения уровня — часть итога, а не деталь раздела прогресса.
+    expect(
+      screen.getByText(
+        i18n.t('lessonRoom:summary.levelChange.reason', { reason: levelChange.reason }),
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText(word.term)).toBeInTheDocument();
+    expect(screen.getByText(word.translation)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', {
+        name: i18n.t('lessonRoom:summary.errorsLogged', { count: 1 }),
+      }),
+    ).toBeInTheDocument();
+
+    // Урок закончен: говорить и завершать больше нечего.
+    expect(screen.queryByLabelText(i18n.t('lessonRoom:composer.label'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: i18n.t('lessonRoom:actions.complete') }),
+    ).not.toBeInTheDocument();
   });
 });
