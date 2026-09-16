@@ -262,7 +262,9 @@ export function toJsonSchema<Schema extends z.ZodType>(
   schema: Schema,
 ): Record<string, unknown> | null {
   try {
-    const { $schema, ...rest } = z.toJSONSchema(schema, { io: 'output' }) as Record<
+    // Ключ `$schema` отбрасывается намеренно: см. комментарий выше. Префикс `_`
+    // — конвенция проекта для осознанно неиспользуемых значений.
+    const { $schema: _$schema, ...rest } = z.toJSONSchema(schema, { io: 'output' }) as Record<
       string,
       unknown
     >;
