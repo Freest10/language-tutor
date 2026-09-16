@@ -3,11 +3,17 @@
  *
  * `useT('profile')` возвращает `t` своего namespace; ключ чужого namespace
  * доступен через префикс — `t('common:actions.retry')`.
+ *
+ * В каждый перевод подставляется `{{where}}` — фраза о том, где лежат настройки
+ * этого запуска (файл `.env` у веб-версии, меню у десктопной). Подстановка
+ * общая, а не по месту вызова: подсказок про настройки больше десятка, и
+ * передавать переменную в каждой из них значило бы однажды где-то забыть.
  */
 import type { TFunction } from 'i18next';
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { configWhereKey, useConfigSource } from './configLocation';
 import {
   DEFAULT_NAMESPACE,
   localeLabel,
@@ -27,8 +33,20 @@ import { ApiError } from '../api/client';
  */
 export function useT(namespace: AppNamespace = DEFAULT_NAMESPACE): TFunction<AppNamespace> {
   const { t } = useTranslation(namespace);
+  const configSource = useConfigSource();
 
-  return t;
+  const translate = useCallback(
+    (key: string, options?: Record<string, unknown>) =>
+      t(key, {
+        where: t(configWhereKey(configSource)),
+        ...options,
+      }),
+    [configSource, t],
+  );
+
+  // Приведение типа: наружу хук отдаёт всё тот же `t` со всеми его перегрузками,
+  // добавлена только подстановка `{{where}}` — описать это в типе `TFunction` нечем.
+  return translate as unknown as TFunction<AppNamespace>;
 }
 
 /** Состояние и переключение языка интерфейса. */

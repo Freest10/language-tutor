@@ -42,7 +42,7 @@
     "title": "Your line",
     "label": "What you want to say",
     "placeholder": "Type your line or hold the button and speak.",
-    "hint": "Ctrl+Enter sends the line. Holding the talk button interrupts the tutor.",
+    "hint": "Ctrl+Enter sends the line. Recording your voice interrupts the tutor.",
     "voiceReady": "This is the recognised text: fix it if needed and send it.",
     "send": "Send",
     "sending": "The tutor is answering…",

@@ -18,9 +18,11 @@ import type { LanguageCode, MessageSource } from '@lt/shared';
 import { useVoiceDraft } from './useLessonSession';
 
 import { LESSON_TURN_MAX_LENGTH } from '../../api/lessonSession';
+import { SendIcon } from '../../components/icons';
 import { useT } from '../../i18n/useT';
 import { PushToTalkButton } from '../voice/PushToTalkButton';
-import type { VoiceFailure } from '../voice/useVoiceInput';
+import { VoiceStatus, type VoiceLayerState } from '../voice/VoiceStatus';
+import { useVoiceInput, type VoiceFailure } from '../voice/useVoiceInput';
 
 /** Как получена отправленная реплика. */
 export interface MessageComposerOptions {
@@ -73,7 +75,12 @@ export function MessageComposer({
   const fieldId = useId();
   const draft = useVoiceDraft();
   const [error, setError] = useState<string | null>(null);
+  const [voiceState, setVoiceState] = useState<VoiceLayerState>('idle');
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
+  // Голосовой ввод держит поле, а не кнопка: кнопка уехала внутрь рамки, и
+  // показывать состояние записи (уровень сигнала, отказ микрофона) нужно под
+  // полем — там, где для этого есть место.
+  const voice = useVoiceInput({ language, prompt, lessonId });
   const hintId = `${fieldId}-hint`;
   const errorId = `${fieldId}-error`;
   const sendBlocked = disabled || isThinking || isSpeaking;
@@ -117,30 +124,65 @@ export function MessageComposer({
   };
 
   return (
-    <section className="lt-card" aria-labelledby="lt-lesson-composer-title">
-      <h2 id="lt-lesson-composer-title">{t('composer.title')}</h2>
-
-      <form onSubmit={handleSubmit} noValidate>
+    <div className="lt-composer">
+      <form onSubmit={handleSubmit} noValidate aria-label={t('composer.title')}>
         <div className="lt-field">
-          <label className="lt-field__label" htmlFor={fieldId}>
+          <label className="lt-field__label lt-visually-hidden" htmlFor={fieldId}>
             {t('composer.label')}
           </label>
-          <textarea
-            id={fieldId}
-            ref={fieldRef}
-            rows={3}
-            value={draft.text}
-            disabled={disabled}
-            maxLength={LESSON_TURN_MAX_LENGTH}
-            placeholder={t('composer.placeholder')}
-            aria-describedby={error ? `${hintId} ${errorId}` : hintId}
-            aria-invalid={error ? true : undefined}
-            onChange={(event) => {
-              draft.setText(event.target.value);
-              setError(null);
-            }}
-            onKeyDown={handleKeyDown}
-          />
+          {/* Поле, микрофон и отправка — одна рамка: строка чата, а не форма.
+              Кнопки внутри поля, потому что относятся к этой самой реплике. */}
+          <div className="lt-composer__shell">
+            <textarea
+              id={fieldId}
+              ref={fieldRef}
+              rows={2}
+              value={draft.text}
+              disabled={disabled}
+              maxLength={LESSON_TURN_MAX_LENGTH}
+              placeholder={t('composer.placeholder')}
+              aria-describedby={error ? `${hintId} ${errorId}` : hintId}
+              aria-invalid={error ? true : undefined}
+              onChange={(event) => {
+                draft.setText(event.target.value);
+                setError(null);
+              }}
+              onKeyDown={handleKeyDown}
+            />
+
+            <PushToTalkButton
+              mode="toggle"
+              className="lt-composer__talk"
+              compact
+              voice={voice}
+              language={language}
+              lessonId={lessonId}
+              prompt={prompt}
+              busy={isThinking}
+              speaking={isSpeaking}
+              disabled={disabled}
+              showStatus={false}
+              ttsFailure={ttsFailure}
+              onInterruptSpeaking={onStopSpeaking}
+              onResult={(result) => {
+                draft.applyVoiceResult(result);
+                setError(null);
+                // Курсор сразу в поле: расшифровку почти всегда нужно поправить.
+                fieldRef.current?.focus();
+              }}
+              onStateChange={setVoiceState}
+            />
+
+            <button
+              type="submit"
+              className="lt-iconbutton lt-iconbutton--accent"
+              disabled={sendBlocked}
+              aria-label={isThinking ? t('composer.sending') : t('composer.send')}
+              title={isThinking ? t('composer.sending') : t('composer.send')}
+            >
+              <SendIcon />
+            </button>
+          </div>
           <p className="lt-field__hint" id={hintId}>
             {draft.source === 'voice' ? t('composer.voiceReady') : t('composer.hint')}
           </p>
@@ -149,39 +191,28 @@ export function MessageComposer({
               {error}
             </p>
           )}
+
+          <VoiceStatus
+            state={voiceState}
+            interimText={voice.interimText}
+            level={voice.level}
+            failure={voice.failure}
+            ttsFailure={ttsFailure}
+            onRetry={voice.reset}
+          />
         </div>
 
-        <div className="lt-toolbar">
-          <button type="submit" className="lt-button" disabled={sendBlocked}>
-            {isThinking ? t('composer.sending') : t('composer.send')}
-          </button>
-          {isSpeaking && (
+        {isSpeaking && (
+          <div className="lt-toolbar">
             <button type="button" className="lt-button" onClick={onStopSpeaking}>
               {t('composer.stopSpeaking')}
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </form>
 
-      <PushToTalkButton
-        language={language}
-        lessonId={lessonId}
-        prompt={prompt}
-        busy={isThinking}
-        speaking={isSpeaking}
-        disabled={disabled}
-        ttsFailure={ttsFailure}
-        onInterruptSpeaking={onStopSpeaking}
-        onResult={(result) => {
-          draft.applyVoiceResult(result);
-          setError(null);
-          // Курсор сразу в поле: расшифровку почти всегда нужно поправить.
-          fieldRef.current?.focus();
-        }}
-      />
-
-      <div className="lt-field">
-        <label className="lt-field__label" htmlFor={`${fieldId}-auto-speak`}>
+      <div className="lt-composer__controls">
+        <label className="lt-composer__toggle" htmlFor={`${fieldId}-auto-speak`}>
           <input
             id={`${fieldId}-auto-speak`}
             type="checkbox"
@@ -192,8 +223,7 @@ export function MessageComposer({
           />{' '}
           {t('composer.autoSpeak.label')}
         </label>
-        <p className="lt-field__hint">{t('composer.autoSpeak.hint')}</p>
       </div>
-    </section>
+    </div>
   );
 }

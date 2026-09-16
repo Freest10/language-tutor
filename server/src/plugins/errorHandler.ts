@@ -132,8 +132,24 @@ export function notFoundHandler(request: FastifyRequest, reply: FastifyReply): v
     .send(toApiErrorResponse('not_found', `Маршрут ${request.method} ${request.url} не найден`));
 }
 
+/** Настройки подключения обработчиков. */
+export interface RegisterErrorHandlerOptions {
+  /**
+   * Чем отвечать на неизвестный маршрут вместо `notFoundHandler`.
+   *
+   * Нужно раздаче собранного интерфейса: у одностраничного приложения адреса
+   * вроде `/lessons/42` существуют только в браузере, и сервер обязан отдать
+   * на них `index.html`. Обработчик ставится один раз, потому что Fastify
+   * разрешает `setNotFoundHandler` только однажды на контекст.
+   */
+  notFound?: (request: FastifyRequest, reply: FastifyReply) => void;
+}
+
 /** Подключает обработчики к инстансу Fastify. */
-export function registerErrorHandler(app: FastifyInstance): void {
+export function registerErrorHandler(
+  app: FastifyInstance,
+  options: RegisterErrorHandlerOptions = {},
+): void {
   app.setErrorHandler(errorHandler);
-  app.setNotFoundHandler(notFoundHandler);
+  app.setNotFoundHandler(options.notFound ?? notFoundHandler);
 }

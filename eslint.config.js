@@ -7,7 +7,17 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**'],
+    // `desktop/build` — собранные бандлы оболочки и сервера, `desktop/resources`
+    // и `desktop/.cache` — скачанные и собранные файлы whisper.cpp.
+    ignores: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/coverage/**',
+      '**/build/**',
+      'desktop/resources/**',
+      'desktop/release/**',
+      'desktop/.cache/**',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -24,7 +34,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ['eslint.config.js', 'shared/**/*.ts', 'server/**/*.ts'],
+    files: [
+      'eslint.config.js',
+      'shared/**/*.ts',
+      'server/**/*.ts',
+      'desktop/**/*.ts',
+      'desktop/scripts/*.mjs',
+    ],
     languageOptions: {
       globals: globals.node,
     },
@@ -44,7 +60,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ['web/vite.config.ts', 'web/vitest.config.ts', 'server/vitest.config.ts'],
+    files: [
+      'web/vite.config.ts',
+      'web/vitest.config.ts',
+      'server/vitest.config.ts',
+      'desktop/vitest.config.ts',
+    ],
     languageOptions: {
       globals: globals.node,
     },

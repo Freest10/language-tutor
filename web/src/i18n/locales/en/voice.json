@@ -24,7 +24,11 @@
     "hold": "Hold to speak",
     "release": "Release to send",
     "hint": "Hold the button or the space bar while you speak.",
-    "hintMouse": "Hold the button while you speak."
+    "hintMouse": "Hold the button while you speak.",
+    "start": "Speak",
+    "stop": "Stop recording",
+    "toggleHint": "Press the button or the space bar; press again when you are done.",
+    "toggleHintMouse": "Press the button; press again when you are done."
   },
   "input": {
     "errors": {
@@ -57,13 +61,13 @@
     }
   },
   "hints": {
-    "enableServerStt": "Set STT_PROVIDER=openai in .env and restart the server to recognise speech on the server.",
-    "enableServerTts": "Set TTS_PROVIDER=openai in .env and restart the server to synthesise speech on the server.",
+    "enableServerStt": "Switch speech recognition to the server. {{where}}",
+    "enableServerTts": "Switch speech synthesis to the server. {{where}}",
     "allowMicrophone": "Allow microphone access in the browser address bar and press the button again.",
     "checkMicrophone": "Check that a microphone is connected and not taken by another application.",
     "speakAgain": "Hold the button and speak a little louder.",
     "browserMode": "In this configuration speech is handled by the browser; reload the page to pick up the current server settings.",
-    "checkServerConfig": "Check the provider settings in .env (API key and model) and restart the server.",
+    "checkServerConfig": "Check the provider settings — API key and model name. {{where}}",
     "shorterRecording": "Record a shorter reply.",
     "retry": "Try again.",
     "typeInstead": "You can type your reply instead."

@@ -11,6 +11,7 @@ import {
 } from '@lt/shared';
 
 import { buildApp } from '../src/app.js';
+import { buildAppConfig } from '../src/routes/config.js';
 import { APP_VERSION, env, EnvValidationError, parseEnv } from '../src/config/env.js';
 import { IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
@@ -42,6 +43,21 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+});
+
+describe('источник настроек', () => {
+  it('по умолчанию — файл .env', () => {
+    expect(parseEnv({}).configSource).toBe('env');
+    expect(buildAppConfig().configSource).toBe('env');
+  });
+
+  it('десктопная сборка сообщает о себе: подсказки не должны звать в .env', () => {
+    expect(parseEnv({ CONFIG_SOURCE: 'desktop' }).configSource).toBe('desktop');
+  });
+
+  it('не принимает посторонних значений', () => {
+    expect(() => parseEnv({ CONFIG_SOURCE: 'ini' })).toThrow(EnvValidationError);
+  });
 });
 
 describe('сетевые границы доступа', () => {

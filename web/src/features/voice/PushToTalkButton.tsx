@@ -24,6 +24,7 @@ import {
 
 import type { LanguageCode } from '@lt/shared';
 
+import { MicIcon } from '../../components/icons';
 import { useT } from '../../i18n/useT';
 
 /** Свойства кнопки удержания. */
@@ -62,6 +63,21 @@ export interface PushToTalkButtonProps {
   voice?: UseVoiceInputResult;
   /** Дополнительный класс контейнера. */
   className?: string;
+  /**
+   * Кнопка-иконка вместо кнопки с подписью: так она помещается внутрь поля
+   * ввода. Подпись при этом никуда не девается — она уходит в `aria-label`
+   * и во всплывающую подсказку, иначе кнопка молчала бы для экранной читалки.
+   */
+  compact?: boolean;
+  /**
+   * Как начинается и заканчивается реплика:
+   * - `hold` — говорить, пока кнопка (или пробел) удерживается;
+   * - `toggle` — нажать, сказать, нажать ещё раз.
+   *
+   * `toggle` удобнее длинной реплике: держать кнопку полминуты неудобно, а
+   * случайно отпустить её посреди фразы — обидно.
+   */
+  mode?: 'hold' | 'toggle';
 }
 
 /** Считается ли элемент текстовым полем: в нём пробел набирает пробел. */
@@ -90,7 +106,7 @@ function isTalkKey(event: KeyboardEvent): boolean {
   );
 }
 
-/** Кнопка голосового ввода: говорить, пока держишь кнопку или пробел. */
+/** Кнопка голосового ввода: удержанием или нажатием — по режиму. */
 export function PushToTalkButton({
   language,
   onResult,
@@ -107,7 +123,10 @@ export function PushToTalkButton({
   ttsFailure = null,
   voice,
   className,
+  compact = false,
+  mode = 'hold',
 }: PushToTalkButtonProps) {
+  const isToggle = mode === 'toggle';
   const t = useT('voice');
   const statusId = useId();
 
@@ -184,6 +203,17 @@ export function PushToTalkButton({
     cancel();
   }, [cancel]);
 
+  /** Нажатие в режиме `toggle`: первое начинает реплику, второе заканчивает. */
+  const toggleRecording = useCallback((): void => {
+    if (holdingRef.current) {
+      void endHold();
+
+      return;
+    }
+
+    beginHold();
+  }, [beginHold, endHold]);
+
   useEffect(() => {
     if (!hotkey) {
       return;
@@ -196,11 +226,18 @@ export function PushToTalkButton({
 
       // Иначе пробел пролистает страницу и «нажмёт» кнопку в фокусе.
       event.preventDefault();
+
+      if (isToggle) {
+        toggleRecording();
+
+        return;
+      }
+
       beginHold();
     };
 
     const handleKeyUp = (event: KeyboardEvent): void => {
-      if (!isTalkKey(event) || isTextEntryTarget(event.target)) {
+      if (isToggle || !isTalkKey(event) || isTextEntryTarget(event.target)) {
         return;
       }
 
@@ -209,7 +246,13 @@ export function PushToTalkButton({
     };
 
     // Уход со вкладки посреди удержания не должен оставить микрофон включённым.
+    // В режиме нажатия запись продолжается: ученик включил её сознательно и
+    // мог отвлечься на другое окно, не закончив фразу.
     const handleBlur = (): void => {
+      if (isToggle) {
+        return;
+      }
+
       void endHold();
     };
 
@@ -222,10 +265,10 @@ export function PushToTalkButton({
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [beginHold, endHold, hotkey]);
+  }, [beginHold, endHold, hotkey, isToggle, toggleRecording]);
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>): void => {
-    if (event.button !== 0) {
+    if (isToggle || event.button !== 0) {
       return;
     }
 
@@ -240,33 +283,55 @@ export function PushToTalkButton({
   };
 
   const handlePointerUp = (): void => {
+    if (isToggle) {
+      return;
+    }
+
     void endHold();
   };
 
-  const label = state === 'listening' ? t('pushToTalk.release') : t('pushToTalk.hold');
+  /** Нажатие целиком: в режиме удержания его обрабатывают события указателя. */
+  const handleClick = (): void => {
+    if (!isToggle) {
+      return;
+    }
+
+    toggleRecording();
+  };
+
+  const label = isToggle
+    ? t(state === 'listening' ? 'pushToTalk.stop' : 'pushToTalk.start')
+    : t(state === 'listening' ? 'pushToTalk.release' : 'pushToTalk.hold');
+  const hint = isToggle
+    ? t(hotkey ? 'pushToTalk.toggleHint' : 'pushToTalk.toggleHintMouse')
+    : t(hotkey ? 'pushToTalk.hint' : 'pushToTalk.hintMouse');
 
   return (
     <div className={className}>
       <div className="lt-toolbar">
         <button
           type="button"
-          className="lt-button"
+          className={
+            compact
+              ? `lt-iconbutton${state === 'listening' ? ' lt-iconbutton--recording' : ''}`
+              : 'lt-button'
+          }
+          {...(compact ? { 'aria-label': label, title: `${label}. ${hint}` } : {})}
           disabled={blocked}
           aria-pressed={state === 'listening'}
           aria-describedby={showStatus ? statusId : undefined}
+          onClick={handleClick}
           onPointerDown={handlePointerDown}
           onPointerUp={handlePointerUp}
-          onPointerCancel={abortHold}
+          onPointerCancel={isToggle ? undefined : abortHold}
           onContextMenu={(event) => {
             // Долгое нажатие на телефоне не должно открывать системное меню.
             event.preventDefault();
           }}
         >
-          {label}
+          {compact ? <MicIcon /> : label}
         </button>
-        <span className="lt-status">
-          {hotkey ? t('pushToTalk.hint') : t('pushToTalk.hintMouse')}
-        </span>
+        {!compact && <span className="lt-status">{hint}</span>}
       </div>
 
       {showStatus && (

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <!-- Голосовой ответ на уроке: без этого разрешения микрофон не откроется. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <!-- Electron и распознаватель речи создают исполняемую память для JIT. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+  </dict>
+</plist>

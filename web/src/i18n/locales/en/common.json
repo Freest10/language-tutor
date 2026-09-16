@@ -28,6 +28,10 @@
   "status": {
     "loading": "Loading…"
   },
+  "config": {
+    "whereEnv": "Settings live in the `.env` file next to the app; restart the server after editing.",
+    "whereDesktop": "Settings live in File → Settings…; after editing choose File → Apply settings."
+  },
   "errors": {
     "unknown": "Unexpected error.",
     "network": "The server is unreachable. Check that it is running.",
@@ -62,8 +66,8 @@
       "title": "Limited capabilities",
       "configUnavailable": "The server configuration is unavailable, so the capabilities of the voice dialogue are unknown.",
       "llmUnavailable": "The language model is not configured: lessons and dialogue will not work. {{reason}}",
-      "sttBrowserMissing": "This browser has no speech recognition (Web Speech API is missing, e.g. in Firefox). Set STT_PROVIDER=openai in .env and restart the server to recognise speech on the server.",
-      "ttsBrowserMissing": "This browser has no speech synthesis (Web Speech API is missing, e.g. in Firefox). Set TTS_PROVIDER=openai in .env and restart the server to synthesise speech on the server.",
+      "sttBrowserMissing": "This browser has no speech recognition (Web Speech API is missing, e.g. in Firefox). Switch recognition to the server to talk to the tutor. {{where}}",
+      "ttsBrowserMissing": "This browser has no speech synthesis (Web Speech API is missing, e.g. in Firefox). Switch synthesis to the server to hear the tutor. {{where}}",
       "sttServerUnavailable": "Server speech recognition is not configured. {{reason}}",
       "ttsServerUnavailable": "Server speech synthesis is not configured. {{reason}}",
       "microphoneMissing": "The browser gives no access to the microphone API: voice input is unavailable."

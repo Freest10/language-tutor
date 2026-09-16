@@ -1,0 +1,76 @@
+# Сборка установщиков десктопной версии: .dmg для macOS и .exe для Windows.
+#
+# Почему матрица, а не одна машина: установщик macOS можно собрать только на
+# macOS (ему нужны системные утилиты упаковки), а распознаватель речи —
+# нативная программа, которую каждая платформа собирает у себя.
+#
+# Сборки НЕ подписаны. Подпись требует сертификатов: Developer ID для macOS
+# (и нотаризации у Apple) и сертификата издателя для Windows. Как их подключить,
+# когда они появятся, — в docs/desktop.md.
+name: desktop
+
+on:
+  # Запуск руками: собирать установщики на каждый коммит незачем — это долго
+  # и упирается в закреплённую версию whisper.cpp, которая меняется редко.
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: macOS
+            pack: npm run pack:mac -w @lt/desktop
+            artifacts: desktop/release/*.dmg
+          - os: windows-latest
+            name: Windows
+            pack: npm run pack:win -w @lt/desktop
+            artifacts: desktop/release/*.exe
+
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      # Исходники и сборка whisper.cpp кэшируются по закреплённой версии:
+      # без кэша каждая сборка тратит на компиляцию несколько минут.
+      - name: Кэш whisper.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            desktop/.cache
+            desktop/resources/whisper
+          key: whisper-${{ runner.os }}-${{ hashFiles('desktop/scripts/whisper.mjs') }}
+
+      - name: Распознаватель речи и модель
+        run: npm run whisper -w @lt/desktop
+
+      - name: Проверки
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+
+      - name: Установщик
+        run: ${{ matrix.pack }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: language-tutor-${{ matrix.name }}
+          path: ${{ matrix.artifacts }}
+          if-no-files-found: error

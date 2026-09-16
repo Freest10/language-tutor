@@ -19,9 +19,11 @@ import { z } from 'zod';
 
 import {
   AUDIO_FORMATS,
+  CONFIG_SOURCES,
   DEFAULT_TTS_FORMAT,
   VOICE_PROVIDERS,
   type AudioFormat,
+  type ConfigSource,
   type VoiceProvider,
 } from '@lt/shared';
 
@@ -112,6 +114,26 @@ function optionalNumber(
   );
 }
 
+/** Значения, которые считаются «включено» у булевой переменной окружения. */
+const TRUTHY_VALUES = ['true', '1', 'yes', 'on'] as const;
+
+/** Значения, которые считаются «выключено» у булевой переменной окружения. */
+const FALSY_VALUES = ['false', '0', 'no', 'off'] as const;
+
+/**
+ * Булева переменная: регистр и пробелы не важны, `VAR=` означает «не задано»
+ * и даёт значение по умолчанию — как у остальных необязательных переменных.
+ */
+function booleanFlag(defaultValue: boolean): z.ZodType<boolean, unknown> {
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim().toLowerCase() || undefined : value),
+    z
+      .enum([...TRUTHY_VALUES, ...FALSY_VALUES], { error: 'ожидается true или false' })
+      .default(defaultValue ? 'true' : 'false')
+      .transform((value) => (TRUTHY_VALUES as readonly string[]).includes(value)),
+  );
+}
+
 /** Необязательная строка: `VAR=` и отсутствие переменной равнозначны. */
 function optionalString(max: number, error: string): z.ZodType<string | undefined, unknown> {
   return z.preprocess(
@@ -145,6 +167,11 @@ export const envSchema = z.object({
     .max(65_535)
     .default(8787),
   LOG_LEVEL: z.enum(LOG_LEVELS, { error: oneOf(LOG_LEVELS) }).default('info'),
+  // Где пользователю искать настройки: `env` — файл `.env` и перезапуск сервера,
+  // `desktop` — меню установленного приложения. Значение уходит клиенту в
+  // `GET /api/config`, чтобы подсказки вели туда, где настройки действительно
+  // лежат: файла `.env` в десктопной сборке нет.
+  CONFIG_SOURCE: z.enum(CONFIG_SOURCES, { error: oneOf(CONFIG_SOURCES) }).default('env'),
   // Порт дев-сервера Vite. Серверу нужен только чтобы разрешить ему CORS.
   WEB_PORT: z.coerce
     .number({ error: 'ожидается номер порта 1..65535' })
@@ -193,6 +220,11 @@ export const envSchema = z.object({
     .max(2000)
     .default(50),
   SCAN_OCR_LANGS: optionalString(200, 'ожидается список кодов языка через запятую'),
+  // Каталог со вспомогательными скриптами распознавания (`macos-ocr.swift`).
+  // Обычно их находят рядом с кодом сервера; переменная нужна там, где код
+  // лежит иначе, — в десктопной сборке скрипты кладутся рядом с приложением,
+  // потому что компилятору нужен обычный файл, а не файл внутри архива asar.
+  OCR_SCRIPTS_DIR: optionalString(1024, 'ожидается путь к каталогу скриптов распознавания'),
   // Модель обязана принимать изображения: обычная текстовая модель на запрос со
   // страницей-картинкой ответит ошибкой или выдумает текст.
   SCAN_VISION_MODEL: z
@@ -204,6 +236,11 @@ export const envSchema = z.object({
 
   // ---------- HTTP ----------
   CORS_ORIGIN: optionalString(2048, 'ожидается список источников через запятую'),
+  // Каталог собранного веб-интерфейса (`web/dist`). Задан — сервер раздаёт
+  // интерфейс сам, и тогда фронт с API живут на одном источнике: так работает
+  // десктопная сборка, где Vite нет вовсе. Пусто — раздачи нет, интерфейс
+  // поднимает Vite (`npm run dev`).
+  WEB_DIST_DIR: optionalString(1024, 'ожидается путь к каталогу собранного веб-интерфейса'),
 
   // ---------- LLM (OpenAI-совместимый HTTP API) ----------
   LLM_BASE_URL: z
@@ -228,6 +265,11 @@ export const envSchema = z.object({
   STT_BASE_URL: z.preprocess(emptyToUndefined, z.url({ error: 'ожидается URL' }).optional()),
   STT_MODEL: optionalString(200, 'ожидается имя модели'),
   STT_API_KEY: optionalString(500, 'ожидается ключ API'),
+  // Распознаватель не умеет распаковывать сжатый звук и принимает только WAV
+  // 16 кГц моно — так устроен встроенный в десктопную сборку whisper.cpp.
+  // Клиент узнаёт об этом из `GET /api/config` и перекодирует запись сам;
+  // сервер запись не трогает ни при каком значении (допущение A10).
+  STT_REQUIRE_WAV16: booleanFlag(false),
 
   // ---------- TTS: синтез речи ----------
   TTS_PROVIDER: z.enum(VOICE_PROVIDERS, { error: oneOf(VOICE_PROVIDERS) }).default('browser'),
@@ -251,6 +293,8 @@ export interface Env {
   host: string;
   port: number;
   logLevel: (typeof LOG_LEVELS)[number];
+  /** Где пользователю искать настройки приложения. */
+  configSource: ConfigSource;
   /** `DB_PATH` как задан в окружении; `undefined` — путь по умолчанию из `db/connection.ts`. */
   dbPath: string | undefined;
   /** Абсолютный путь к каталогу загруженных файлов. */
@@ -269,10 +313,17 @@ export interface Env {
   scanMaxPages: number;
   /** Языки локального распознавания: коды BCP-47. */
   scanOcrLangs: string[];
+  /** Каталог вспомогательных скриптов распознавания; `undefined` — искать рядом с кодом. */
+  ocrScriptsDir: string | undefined;
   /** Модель режима `vision`: обязана принимать изображения. */
   scanVisionModel: string;
   /** Разрешённые источники CORS; пусто в env — только собственный веб. */
   corsOrigin: string[];
+  /**
+   * Абсолютный путь к собранному веб-интерфейсу, который раздаёт сам сервер;
+   * `undefined` — сервер отдаёт только API.
+   */
+  webDistDir: string | undefined;
   /** Базовый URL OpenAI-совместимого API языковой модели. */
   llmBaseUrl: string;
   llmModel: string;
@@ -284,6 +335,8 @@ export interface Env {
   sttBaseUrl: string | undefined;
   sttModel: string | undefined;
   sttApiKey: string | undefined;
+  /** Распознаватель принимает только WAV 16 кГц моно: клиент перекодирует запись. */
+  sttRequireWav16: boolean;
   /** Кто выполняет синтез речи: `browser` — серверный эндпоинт отключён. */
   ttsProvider: VoiceProvider;
   ttsBaseUrl: string | undefined;
@@ -372,6 +425,7 @@ function toEnv(raw: RawEnv): Env {
     host: raw.HOST,
     port: raw.PORT,
     logLevel: raw.LOG_LEVEL,
+    configSource: raw.CONFIG_SOURCE,
     dbPath: raw.DB_PATH,
     uploadDir: isAbsolute(raw.UPLOAD_DIR) ? raw.UPLOAD_DIR : resolve(workspaceRoot, raw.UPLOAD_DIR),
     maxUploadMb: raw.MAX_UPLOAD_MB,
@@ -381,10 +435,22 @@ function toEnv(raw: RawEnv): Env {
     scanDpi: raw.SCAN_DPI,
     scanMaxPages: raw.SCAN_MAX_PAGES,
     scanOcrLangs: parseScanLangs(raw.SCAN_OCR_LANGS),
+    ocrScriptsDir:
+      raw.OCR_SCRIPTS_DIR === undefined
+        ? undefined
+        : isAbsolute(raw.OCR_SCRIPTS_DIR)
+          ? raw.OCR_SCRIPTS_DIR
+          : resolve(workspaceRoot, raw.OCR_SCRIPTS_DIR),
     // Своя переменная, а не LLM_MODEL: диалог тьютора ведёт текстовая модель, а
     // страницу-картинку способна прочитать только модель со зрением.
     scanVisionModel: raw.SCAN_VISION_MODEL,
     corsOrigin: parseOrigins(raw.CORS_ORIGIN, raw.WEB_PORT),
+    webDistDir:
+      raw.WEB_DIST_DIR === undefined
+        ? undefined
+        : isAbsolute(raw.WEB_DIST_DIR)
+          ? raw.WEB_DIST_DIR
+          : resolve(workspaceRoot, raw.WEB_DIST_DIR),
     llmBaseUrl: raw.LLM_BASE_URL,
     llmModel: raw.LLM_MODEL,
     llmApiKey: raw.LLM_API_KEY,
@@ -394,6 +460,7 @@ function toEnv(raw: RawEnv): Env {
     sttBaseUrl: raw.STT_BASE_URL,
     sttModel: raw.STT_MODEL,
     sttApiKey: raw.STT_API_KEY,
+    sttRequireWav16: raw.STT_REQUIRE_WAV16,
     ttsProvider: raw.TTS_PROVIDER,
     ttsBaseUrl: raw.TTS_BASE_URL,
     ttsModel: raw.TTS_MODEL,

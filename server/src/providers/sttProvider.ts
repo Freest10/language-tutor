@@ -12,6 +12,8 @@ import { z } from 'zod';
 
 import { LANGUAGE_CODE_PATTERN, type LanguageCode } from '@lt/shared';
 
+import { cleanTranscript } from '../lib/transcript.js';
+
 import { OpenAiCompatibleClient, type RetryPolicy } from './openaiCompatible.js';
 import {
   ProviderError,
@@ -121,7 +123,9 @@ class OpenAiCompatibleSttProvider implements SttProvider {
     const duration = parsed.data.duration;
 
     return {
-      text: parsed.data.text.trim(),
+      // На тишине whisper возвращает не пустую строку, а пометку `[BLANK_AUDIO]`:
+      // ученику она приедет в поле ввода как его собственная реплика.
+      text: cleanTranscript(parsed.data.text),
       language: normalizeLanguage(parsed.data.language),
       durationMs:
         duration === null || duration === undefined || !Number.isFinite(duration)

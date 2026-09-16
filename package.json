@@ -7,7 +7,8 @@
   "workspaces": [
     "shared",
     "server",
-    "web"
+    "web",
+    "desktop"
   ],
   "engines": {
     "node": ">=24"

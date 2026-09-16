@@ -43,6 +43,8 @@ export function sttCapability(): SttCapability {
       provider: 'browser',
       available: true,
       model: null,
+      // Браузер пишет и распознаёт звук сам, перекодировать нечего.
+      requiresWav16: false,
       reason: `Распознавание выполняет браузер; серверный ${API_PREFIX}/voice/stt отключён (STT_PROVIDER=browser)`,
     };
   }
@@ -53,6 +55,7 @@ export function sttCapability(): SttCapability {
     provider: env.sttProvider,
     available,
     model: env.sttModel ?? null,
+    requiresWav16: env.sttRequireWav16,
     reason: available ? null : 'Не заданы STT_BASE_URL или STT_MODEL',
   };
 }

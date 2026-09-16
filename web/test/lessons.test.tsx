@@ -28,6 +28,7 @@ import {
 
 import { App } from '../src/App';
 import { i18n, resources } from '../src/i18n';
+import { textWithConfigHint } from './support/hints';
 import { createQueryClient } from '../src/lib/queryClient';
 import { lessonPlanPath, lessonRoomPath, routes } from '../src/router';
 
@@ -36,8 +37,9 @@ const CONFIG_FIXTURE: AppConfig = {
   appName: APP_NAME,
   apiPrefix: API_PREFIX,
   version: '0.1.0',
+  configSource: 'env',
   llm: { available: true, model: 'qwen2.5', reason: null },
-  stt: { provider: 'browser', available: true, model: null, reason: null },
+  stt: { provider: 'browser', available: true, model: null, requiresWav16: false, reason: null },
   tts: {
     provider: 'browser',
     available: true,
@@ -568,8 +570,10 @@ describe('создание урока', () => {
     await fillForm(user);
     await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
 
-    expect(await screen.findByText(i18n.t('lessons:errors.notConfigured'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('lessons:errors.setupHint'))).toBeInTheDocument();
+    expect(
+      await screen.findByText(textWithConfigHint('lessons:errors.notConfigured')),
+    ).toBeInTheDocument();
+    expect(screen.getByText(textWithConfigHint('lessons:errors.setupHint'))).toBeInTheDocument();
     expect(
       screen.queryByText(i18n.t('common:errors.byCode.not_configured')),
     ).not.toBeInTheDocument();
@@ -593,7 +597,9 @@ describe('создание урока', () => {
       await screen.findByText(i18n.t('lessons:errors.upstreamUnavailable')),
     ).toBeInTheDocument();
     expect(screen.getByText(i18n.t('lessons:errors.startHint'))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('lessons:errors.setupHint'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(textWithConfigHint('lessons:errors.setupHint')),
+    ).not.toBeInTheDocument();
   });
 
   it('на ненайденную модель называет её и не советует повторить попытку', async () => {
@@ -622,8 +628,12 @@ describe('создание урока', () => {
     expect(
       await screen.findByText(i18n.t('lessons:errors.modelNotFound', { model: 'qwen3:8b' })),
     ).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('lessons:errors.modelNotFoundHint'))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('lessons:errors.retryHint'))).not.toBeInTheDocument();
+    expect(
+      screen.getByText(textWithConfigHint('lessons:errors.modelNotFoundHint')),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(textWithConfigHint('lessons:errors.retryHint')),
+    ).not.toBeInTheDocument();
   });
 
   it('на оборванный ответ советует расширить окно контекста, а не повторить', async () => {
@@ -647,7 +657,9 @@ describe('создание урока', () => {
 
     expect(await screen.findByText(i18n.t('lessons:errors.responseTruncated'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('lessons:errors.responseTruncatedHint'))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('lessons:errors.retryHint'))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(textWithConfigHint('lessons:errors.retryHint')),
+    ).not.toBeInTheDocument();
   });
 
   it('ни одна подсказка не отправляет к несуществующей переменной окружения', () => {

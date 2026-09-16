@@ -191,8 +191,10 @@ export type {
 // GET /api/config.
 export {
   appConfigSchema,
+  CONFIG_SOURCES,
   configDefaultsSchema,
   configLimitsSchema,
+  configSourceSchema,
   getConfigResponseSchema,
   llmCapabilitySchema,
   sttCapabilitySchema,
@@ -202,6 +204,7 @@ export type {
   AppConfig,
   ConfigDefaults,
   ConfigLimits,
+  ConfigSource,
   GetConfigResponse,
   LlmCapability,
   SttCapability,

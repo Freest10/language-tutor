@@ -37,8 +37,10 @@ const COMPILE_TIMEOUT_MS = 120_000;
 /** Таймаут распознавания одной страницы, мс. */
 const RECOGNIZE_TIMEOUT_MS = 120_000;
 
-// Кандидаты — запуск из исходников (`src/lib/ocr/`) и из сборки (`dist/src/lib/ocr/`).
+// Кандидаты: явно заданный каталог (`OCR_SCRIPTS_DIR` — так делает десктопная
+// сборка), запуск из исходников (`src/lib/ocr/`) и из сборки (`dist/src/lib/ocr/`).
 const SCRIPTS_DIR_CANDIDATES = [
+  ...(env.ocrScriptsDir === undefined ? [] : [env.ocrScriptsDir]),
   resolve(moduleDir, '../../../scripts'),
   resolve(moduleDir, '../../../../scripts'),
 ];

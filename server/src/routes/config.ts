@@ -43,6 +43,9 @@ export function buildAppConfig(): AppConfig {
     appName: APP_NAME,
     apiPrefix: API_PREFIX,
     version: APP_VERSION,
+    // Куда интерфейс отправляет пользователя за настройками: в `.env` или
+    // в меню десктопного приложения.
+    configSource: env.configSource,
     llm: llmCapability(),
     stt: sttCapability(),
     tts: ttsCapability(),

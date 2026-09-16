@@ -15,7 +15,7 @@
     "configUnavailable": "The server configuration is unavailable, so it is unknown whether the language model is ready. You can still try to start the test.",
     "llmUnavailable": {
       "title": "The language model is not configured",
-      "description": "The placement test asks its questions through a language model. Set the provider and the model in .env, restart the server and come back."
+      "description": "The placement test asks its questions through a language model. Set the provider address and the model name, then come back. {{where}}"
     },
     "start": "Start the test",
     "starting": "Preparing the first question…"
@@ -61,7 +61,7 @@
     "createLesson": "Create the first lesson"
   },
   "errors": {
-    "notConfigured": "The language model is not configured, so the tutor cannot ask questions. Check the provider and the model in .env and restart the server.",
+    "notConfigured": "The language model is not configured, so the tutor cannot ask questions. Check the provider address and the model name. {{where}}",
     "upstreamUnavailable": "The language model did not respond: usually it is stopped or busy with another request.",
     "upstreamError": "The language model returned an error or an answer the application could not read.",
     "progressKept": "The test is kept on the server: your answers are not lost, you can try again.",

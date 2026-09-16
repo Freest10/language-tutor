@@ -37,8 +37,9 @@ const CONFIG_FIXTURE: AppConfig = {
   appName: APP_NAME,
   apiPrefix: API_PREFIX,
   version: '0.1.0',
+  configSource: 'env',
   llm: { available: true, model: 'qwen2.5', reason: null },
-  stt: { provider: 'browser', available: true, model: null, reason: null },
+  stt: { provider: 'browser', available: true, model: null, requiresWav16: false, reason: null },
   tts: {
     provider: 'browser',
     available: true,

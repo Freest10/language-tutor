@@ -1,0 +1,32 @@
+{
+  "name": "@lt/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Десктопная оболочка language-tutor: Electron со встроенными сервером и whisper.cpp",
+  "main": "build/app/main.js",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "whisper": "node scripts/whisper.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "pack": "npm run build && electron-builder --publish never",
+    "pack:mac": "npm run build && electron-builder --mac --publish never",
+    "pack:win": "npm run build && electron-builder --win --publish never",
+    "clean": "rm -rf build dist"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "pdf-parse": "^2.4.5"
+  },
+  "devDependencies": {
+    "@lt/server": "*",
+    "@lt/web": "*",
+    "electron": "44.4.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.10",
+    "zod": "^4.6.5"
+  }
+}

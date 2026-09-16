@@ -185,39 +185,45 @@ export function LessonRoomPage() {
           />
 
           <div style={{ display: 'grid', gap: 'var(--lt-space-md)' }}>
-            <ChatTranscript
-              messages={session.messages}
-              pendingTurn={session.pendingTurn}
-              isThinking={session.isThinking}
-              hasOlderMessages={session.hasOlderMessages}
-              canSpeak={tts.available}
-              isSpeaking={tts.isSpeaking}
-              onSpeak={(message) => {
-                void tts.speak({
-                  text: message.content,
-                  language: message.language ?? language,
-                });
-              }}
-              onStopSpeaking={tts.stop}
-              onRetryPending={failure?.action === 'turn' ? session.retry : undefined}
-            />
+            {/* Лента и поле ввода — одна панель: реплику пишут в чат, а не
+                в форму рядом с ним. */}
+            <section className="lt-card lt-chat-panel" aria-labelledby="lt-lesson-chat-title">
+              <h2 id="lt-lesson-chat-title">{t('transcript.title')}</h2>
 
-            {isRunning && (
-              <MessageComposer
-                language={language}
-                lessonId={id}
-                prompt={stepPrompt}
+              <ChatTranscript
+                messages={session.messages}
+                pendingTurn={session.pendingTurn}
                 isThinking={session.isThinking}
+                hasOlderMessages={session.hasOlderMessages}
+                canSpeak={tts.available}
                 isSpeaking={tts.isSpeaking}
-                autoSpeak={autoSpeak}
-                ttsFailure={tts.failure}
-                onAutoSpeakChange={setAutoSpeak}
-                onStopSpeaking={tts.stop}
-                onSubmit={(text, options) => {
-                  session.sendTurn(text, options);
+                onSpeak={(message) => {
+                  void tts.speak({
+                    text: message.content,
+                    language: message.language ?? language,
+                  });
                 }}
+                onStopSpeaking={tts.stop}
+                onRetryPending={failure?.action === 'turn' ? session.retry : undefined}
               />
-            )}
+
+              {isRunning && (
+                <MessageComposer
+                  language={language}
+                  lessonId={id}
+                  prompt={stepPrompt}
+                  isThinking={session.isThinking}
+                  isSpeaking={tts.isSpeaking}
+                  autoSpeak={autoSpeak}
+                  ttsFailure={tts.failure}
+                  onAutoSpeakChange={setAutoSpeak}
+                  onStopSpeaking={tts.stop}
+                  onSubmit={(text, options) => {
+                    session.sendTurn(text, options);
+                  }}
+                />
+              )}
+            </section>
 
             {isRunning && (
               <ExercisePanel

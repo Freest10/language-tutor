@@ -1,0 +1,88 @@
+# Сборка установщиков десктопной версии.
+#
+# Что попадает внутрь:
+#   build/app/**            — оболочка, сервер одним файлом, интерфейс, миграции
+#   node_modules/better-sqlite3 — нативный модуль, его в бандл не собрать
+#   resources/whisper       — распознаватель речи и модель, рядом с приложением
+#
+# Нативный модуль НЕ пересобирается под Electron (`npmRebuild: false`):
+# better-sqlite3 собран на N-API, а он совместим по ABI и с Node, и с Electron.
+# Пересборка потребовала бы компилятора на каждой машине сборки и ничего бы
+# не дала.
+#
+# Подписи здесь нет. Неподписанную сборку macOS пускает только через
+# «Открыть» в контекстном меню, а Windows показывает предупреждение
+# SmartScreen — см. docs/desktop.md.
+appId: io.github.language-tutor
+productName: language-tutor
+copyright: language-tutor
+
+directories:
+  output: release
+  buildResources: build-assets
+
+files:
+  - build/app/**/*
+  - '!**/*.map'
+  # Просмотрщик pdf.js и его файлы типов в приложении не нужны: разбор PDF
+  # пользуется только библиотекой.
+  - '!node_modules/pdfjs-dist/web/**'
+  - '!node_modules/pdfjs-dist/types/**'
+  # В установщик едут только готовые сборки модуля под нужную платформу:
+  # исходники sqlite и каталог node-gyp нужны лишь при компиляции.
+  - '!node_modules/better-sqlite3/build/**'
+  - '!node_modules/better-sqlite3/deps/**'
+  - '!node_modules/better-sqlite3/src/**'
+
+# Исполняемый файл и модель обязаны лежать обычными файлами: программу из
+# архива asar не запустить, а модель незачем читать через него.
+extraResources:
+  - from: resources/whisper
+    to: whisper
+    filter:
+      - '**/*'
+  # Помощник распознавания для macOS: его собирает `swiftc` уже на машине
+  # пользователя, поэтому нужен обычный файл рядом с приложением.
+  - from: resources/scripts
+    to: scripts
+    filter:
+      - '**/*'
+
+asarUnpack:
+  - '**/*.node'
+  - '**/node_modules/better-sqlite3/**'
+
+npmRebuild: false
+
+mac:
+  category: public.app-category.education
+  icon: build-assets/icon.png
+  # Только Apple Silicon: сборка под Intel требует и своей сборки whisper.cpp
+  # (нативная программа под x86_64), и машины, на которой её можно проверить.
+  # Понадобится — добавьте сюда `x64` и соберите распознаватель с
+  # `-DCMAKE_OSX_ARCHITECTURES=x86_64`.
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  hardenedRuntime: true
+  entitlements: build-assets/entitlements.mac.plist
+  entitlementsInherit: build-assets/entitlements.mac.plist
+  # Без этого система не покажет запрос доступа к микрофону, а просто откажет.
+  extendInfo:
+    NSMicrophoneUsageDescription: >-
+      Микрофон нужен для голосового ответа на уроке. Запись распознаётся на этом
+      же компьютере и никуда не отправляется.
+
+win:
+  icon: build-assets/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false

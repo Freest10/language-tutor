@@ -24,6 +24,7 @@ import { MAX_AUDIO_UPLOAD_BYTES, type LanguageCode, type VoiceProvider } from '@
 
 import { useMicRecorder, type MicFailureKind } from './useMicRecorder';
 import { useSpeechRecognition, type SpeechFailure } from './useSpeechRecognition';
+import { toWav16Mono } from './wav16';
 
 import { isApiError } from '../../api/client';
 import { audioRejection, isBrowserOnlyError, transcribeAudio } from '../../api/voice';
@@ -314,6 +315,9 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputResul
   }, [onFailure, onResult]);
 
   const maxAudioBytes = config?.limits.maxAudioUploadBytes ?? MAX_AUDIO_UPLOAD_BYTES;
+  // Пока конфигурация не пришла, считаем, что распознаватель принимает запись
+  // как есть: так работают все серверные провайдеры, кроме встроенного.
+  const requiresWav16 = config?.stt.requiresWav16 ?? false;
 
   /** Запоминает отказ и сообщает о нём вызывающему коду. */
   const fail = useCallback(
@@ -441,7 +445,24 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputResul
       return null;
     }
 
-    const rejection = audioRejection(recording.blob, maxAudioBytes);
+    // Распознавателю, который не умеет распаковывать сжатый звук, запись
+    // перекодирует браузер: он этот Opus и записал, других декодеров рядом нет.
+    // Проверка размера идёт уже по тому, что действительно уйдёт на сервер:
+    // WAV тяжелее исходной записи примерно в десять раз.
+    let audio = recording.blob;
+
+    if (requiresWav16) {
+      try {
+        audio = await toWav16Mono(audio);
+      } catch (error) {
+        fail('unsupported_format', error);
+        setState('idle');
+
+        return null;
+      }
+    }
+
+    const rejection = audioRejection(audio, maxAudioBytes);
 
     if (rejection) {
       fail(rejection === 'empty' ? 'no_speech' : rejection);
@@ -452,7 +473,7 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputResul
 
     try {
       const response = await transcribeAudio({
-        audio: recording.blob,
+        audio,
         language,
         prompt,
         lessonId,
@@ -486,6 +507,7 @@ export function useVoiceInput(options: UseVoiceInputOptions): UseVoiceInputResul
     lessonId,
     maxAudioBytes,
     prompt,
+    requiresWav16,
     runsInBrowser,
     stopRecognition,
     stopRecorder,

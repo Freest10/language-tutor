@@ -9,7 +9,7 @@
  * вместо молча неработающего микрофона.
  */
 import { useQuery } from '@tanstack/react-query';
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from 'react';
 
 import {
   getConfigResponseSchema,
@@ -21,6 +21,7 @@ import {
 } from '@lt/shared';
 
 import { ApiError, api } from '../api/client';
+import { setConfigSource } from '../i18n/configLocation';
 
 /** Ключ запроса конфигурации: по нему её можно перечитать из любой страницы. */
 export const CAPABILITIES_QUERY_KEY = ['config'] as const;
@@ -186,6 +187,15 @@ export function CapabilitiesProvider({ children }: CapabilitiesProviderProps) {
   });
 
   const { data, error, isPending, refetch } = query;
+
+  // Подсказки «поправьте настройки» должны вести туда, где настройки лежат:
+  // в файл `.env` у веб-версии и в меню у десктопной. Узнаём это здесь —
+  // раньше конфигурации такого знания просто нет.
+  useEffect(() => {
+    if (data) {
+      setConfigSource(data.configSource);
+    }
+  }, [data]);
 
   const value = useMemo<CapabilitiesValue>(() => {
     const browser = detectBrowserSupport();

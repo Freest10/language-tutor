@@ -50,10 +50,22 @@ import { pickSpeechVoice, useTextToSpeech } from '../src/features/voice/useTextT
 import {
   kindFromApiError,
   useVoiceInput,
+  type VoiceFailure,
   type VoiceInputResult,
 } from '../src/features/voice/useVoiceInput';
+import { toWav16Mono } from '../src/features/voice/wav16';
 import { i18n } from '../src/i18n';
+import { textWithConfigHint } from './support/hints';
 import { I18nProvider } from '../src/i18n/I18nProvider';
+
+// Перекодирование записи опирается на Web Audio, которого в jsdom нет: проверяем
+// не сам кодек (у него свой тест — `wav16.test.ts`), а то, что на сервер уходит
+// именно перекодированная запись, когда сервер об этом попросил.
+vi.mock('../src/features/voice/wav16', () => ({
+  toWav16Mono: vi.fn(
+    async (blob: Blob) => new Blob([await blob.arrayBuffer()], { type: 'audio/wav' }),
+  ),
+}));
 
 /**
  * Конфигурация сервера с нужными провайдерами голоса.
@@ -71,11 +83,13 @@ function configFixture(
     appName: APP_NAME,
     apiPrefix: API_PREFIX,
     version: '0.1.0',
+    configSource: 'env',
     llm: { available: true, model: 'qwen2.5', reason: null },
     stt: {
       provider: stt,
       available: true,
       model: stt === 'openai' ? 'whisper-1' : null,
+      requiresWav16: false,
       reason: null,
     },
     tts: {
@@ -461,11 +475,19 @@ function renderVoice(ui: ReactNode) {
 
 /** Перевод ключа голосового namespace. */
 function voiceText(key: string, params?: Record<string, unknown>): string {
-  return i18n.t(`voice:${key}`, params ?? {});
+  return textWithConfigHint(`voice:${key}`, params ?? {});
 }
 
 /** Кнопка удержания с журналом расшифровок. */
-function TalkHarness({ onResult }: { onResult?: (result: VoiceInputResult) => void }) {
+function TalkHarness({
+  onResult,
+  onFailure,
+  mode,
+}: {
+  onResult?: (result: VoiceInputResult) => void;
+  onFailure?: (failure: VoiceFailure) => void;
+  mode?: 'hold' | 'toggle';
+}) {
   const [texts, setTexts] = useState<string[]>([]);
 
   return (
@@ -473,6 +495,8 @@ function TalkHarness({ onResult }: { onResult?: (result: VoiceInputResult) => vo
       <input aria-label="reply" type="text" />
       <PushToTalkButton
         language="en"
+        {...(mode === undefined ? {} : { mode })}
+        onFailure={onFailure}
         onResult={(result) => {
           setTexts((previous) => [...previous, result.text]);
           onResult?.(result);
@@ -1503,5 +1527,174 @@ describe('запись с микрофона', () => {
     expect(result.current.status).toBe('error');
     // Без `track.stop()` индикатор записи в браузере горел бы и после отказа.
     expect(tracks[0]?.stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('распознаватель, принимающий только WAV', () => {
+  beforeEach(() => {
+    stubMicrophone(() => Promise.resolve(createStream()));
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+    vi.mocked(toWav16Mono).mockClear();
+  });
+
+  /** Конфигурация сервера, который просит присылать WAV 16 кГц. */
+  function wavOnlyConfig(): AppConfig {
+    const config = configFixture('openai', 'browser');
+
+    return { ...config, stt: { ...config.stt, requiresWav16: true } };
+  }
+
+  it('отправляет перекодированную запись вместо исходной', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(wavOnlyConfig())
+        : jsonResponse(sttResponse('Good morning')),
+    );
+
+    renderVoice(<TalkHarness />);
+    await holdAndRelease(await talkButton());
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.includes('/voice/stt'))).toBe(true);
+    });
+
+    expect(vi.mocked(toWav16Mono)).toHaveBeenCalledTimes(1);
+
+    const form = calls.find((call) => call.url.includes('/voice/stt'))?.body as FormData;
+    const sent = form.get(STT_AUDIO_FIELD_NAME) as Blob;
+
+    // Исходная запись — `audio/webm;codecs=opus`, а whisper.cpp её не распакует.
+    expect(sent.type).toBe('audio/wav');
+  });
+
+  it('не перекодирует запись, когда сервер этого не просит', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(configFixture('openai', 'browser'))
+        : jsonResponse(sttResponse('Good morning')),
+    );
+
+    renderVoice(<TalkHarness />);
+    await holdAndRelease(await talkButton());
+
+    await waitFor(() => {
+      expect(calls.some((call) => call.url.includes('/voice/stt'))).toBe(true);
+    });
+
+    // Opus примерно в десять раз компактнее WAV: облачному распознавателю,
+    // который умеет его распаковать, перекодирование только вредит.
+    expect(vi.mocked(toWav16Mono)).not.toHaveBeenCalled();
+  });
+
+  it('объясняет отказ перекодирования и не шлёт запись на сервер', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(wavOnlyConfig())
+        : jsonResponse(sttResponse('не должно дойти')),
+    );
+    vi.mocked(toWav16Mono).mockRejectedValueOnce(new Error('не удалось распаковать'));
+
+    const onFailure = vi.fn();
+
+    renderVoice(<TalkHarness onFailure={onFailure} />);
+    await holdAndRelease(await talkButton());
+
+    await waitFor(() => {
+      expect(onFailure).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'unsupported_format', suggestTyping: true }),
+      );
+    });
+
+    expect(calls.some((call) => call.url.includes('/voice/stt'))).toBe(false);
+  });
+});
+
+describe('запись нажатием, а не удержанием', () => {
+  beforeEach(() => {
+    stubMicrophone(() => Promise.resolve(createStream()));
+    vi.stubGlobal('MediaRecorder', FakeMediaRecorder);
+  });
+
+  /** Кнопка записи, готовая к нажатию: до загрузки конфигурации она заблокирована. */
+  async function talkToggle(): Promise<HTMLElement> {
+    const button = await screen.findByRole('button', { name: voiceText('pushToTalk.start') });
+
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+
+    return button;
+  }
+
+  it('первое нажатие начинает запись, а не заканчивает её', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(configFixture('openai', 'browser'))
+        : jsonResponse(sttResponse('Guten Morgen')),
+    );
+
+    renderVoice(<TalkHarness mode="toggle" />);
+
+    const button = await talkToggle();
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    // Держать кнопку не нужно: запись идёт сама, пока её не остановят.
+    expect(FakeMediaRecorder.instances).toHaveLength(1);
+    expect(FakeMediaRecorder.instances[0]?.state).toBe('recording');
+    expect(calls.some((call) => call.url.includes('/voice/stt'))).toBe(false);
+    expect(
+      await screen.findByRole('button', { name: voiceText('pushToTalk.stop') }),
+    ).toBeInTheDocument();
+  });
+
+  it('второе нажатие заканчивает запись и отдаёт расшифровку', async () => {
+    const onResult = vi.fn();
+
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(configFixture('openai', 'browser'))
+        : jsonResponse(sttResponse('Guten Morgen')),
+    );
+
+    renderVoice(<TalkHarness mode="toggle" onResult={onResult} />);
+
+    const button = await talkToggle();
+
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    await waitFor(() => {
+      expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ text: 'Guten Morgen' }));
+    });
+
+    // Микрофон отпущен: индикатор записи в браузере не должен гореть после реплики.
+    expect(tracks[0]?.stop).toHaveBeenCalled();
+  });
+
+  it('не реагирует на удержание указателя', async () => {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(configFixture('openai', 'browser'))
+        : jsonResponse(sttResponse('Guten Morgen')),
+    );
+
+    renderVoice(<TalkHarness mode="toggle" />);
+
+    const button = await talkToggle();
+
+    // Событий указателя в этом режиме недостаточно: реплику начинает нажатие
+    // целиком, иначе одно нажатие мыши и начинало бы, и заканчивало запись.
+    await act(async () => {
+      fireEvent.pointerDown(button, { button: 0, pointerId: 1 });
+    });
+
+    expect(FakeMediaRecorder.instances).toHaveLength(0);
   });
 });

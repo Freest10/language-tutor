@@ -485,7 +485,7 @@ function describeScan(scanned: ScanPdfResult): string | null {
   return (
     `Распознаны первые ${String(scanned.processedPages)} страниц ` +
     `из ${String(scanned.pageCount)}: предел SCAN_MAX_PAGES. ` +
-    'Остальные страницы в материал не попали — поднимите предел в .env и загрузите файл заново.'
+    'Остальные страницы в материал не попали — поднимите предел в настройках и загрузите файл заново.'
   );
 }
 

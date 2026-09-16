@@ -124,8 +124,9 @@ const CONFIG_FIXTURE: AppConfig = {
   appName: APP_NAME,
   apiPrefix: API_PREFIX,
   version: '0.1.0',
+  configSource: 'env',
   llm: { available: true, model: 'qwen2.5', reason: null },
-  stt: { provider: 'browser', available: true, model: null, reason: null },
+  stt: { provider: 'browser', available: true, model: null, requiresWav16: false, reason: null },
   tts: {
     provider: 'browser',
     available: true,
@@ -482,6 +483,24 @@ function exercisePanel(): HTMLElement {
   return screen.getByRole('region', { name: i18n.t('lessonRoom:exercise.title') });
 }
 
+/**
+ * Реплика голосом: нажать «Говорить», сказать, нажать «Закончить запись».
+ *
+ * Кнопка работает нажатием, а не удержанием: держать её всю фразу неудобно,
+ * а отпустить посреди — обидно.
+ */
+async function speakInto(
+  user: ReturnType<typeof userEvent.setup>,
+  scope: typeof screen | ReturnType<typeof within> = screen,
+): Promise<void> {
+  // Подпись кнопки меняется по состоянию голосового ввода, а он здесь подменён
+  // заглушкой, поэтому оба нажатия идут по одному и тому же элементу.
+  const button = scope.getByRole('button', { name: i18n.t('voice:pushToTalk.start') });
+
+  await user.click(button);
+  await user.click(button);
+}
+
 /** Поле ввода реплики ученика. */
 function composerField(): Promise<HTMLTextAreaElement> {
   return screen.findByLabelText(
@@ -560,7 +579,7 @@ describe('диалог урока', () => {
     const { user } = renderApp(lessonRoomPath('l-1'));
     const field = await composerField();
 
-    await user.click(screen.getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+    await speakInto(user);
 
     // Распознанное сперва попадает в поле: отправлять вслепую нельзя.
     await waitFor(() => {
@@ -585,13 +604,13 @@ describe('диалог урока', () => {
     });
   });
 
-  it('удержание кнопки записи прерывает говорящего тьютора', async () => {
+  it('начало записи прерывает говорящего тьютора', async () => {
     stubRoom({});
 
     const { user } = renderApp(lessonRoomPath('l-1'));
 
     await composerField();
-    await user.click(screen.getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+    await user.click(screen.getByRole('button', { name: i18n.t('voice:pushToTalk.start') }));
 
     expect(ttsStub.stop).toHaveBeenCalled();
   });
@@ -941,8 +960,8 @@ describe('задания урока', () => {
       within(panel).getByText(i18n.t('lessonRoom:exercise.answer.voiceHint')),
     ).toBeInTheDocument();
 
-    // У свободной речи своя кнопка удержания — рядом с полем ответа, а не только в диалоге.
-    await user.click(within(panel).getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+    // У свободной речи своя кнопка записи — рядом с полем ответа, а не только в диалоге.
+    await speakInto(user, within(panel));
 
     // Расшифровка сперва попадает в поле: отправлять её вслепую нельзя.
     await waitFor(() => {
@@ -1043,7 +1062,7 @@ describe('ввод реплики', () => {
     const { user } = renderApp(lessonRoomPath('l-1'));
     const field = await composerField();
 
-    await user.click(screen.getByRole('button', { name: i18n.t('voice:pushToTalk.hold') }));
+    await speakInto(user);
 
     await waitFor(() => {
       expect(field.value).toHaveLength(LESSON_TURN_MAX_LENGTH + 1);
@@ -1128,7 +1147,7 @@ describe('отказ голоса посреди урока', () => {
     expect(screen.getAllByText(i18n.t('voice:hints.checkMicrophone')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(i18n.t('voice:hints.typeInstead')).length).toBeGreaterThan(0);
     expect(
-      screen.getAllByRole('button', { name: i18n.t('voice:pushToTalk.hold') })[0],
+      screen.getAllByRole('button', { name: i18n.t('voice:pushToTalk.start') })[0],
     ).toBeDisabled();
 
     // Урок продолжается текстом: реплика уходит на сервер как обычно.

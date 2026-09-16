@@ -230,6 +230,7 @@ export function ExercisePanel({
 
       {isVoice && (
         <PushToTalkButton
+          mode="toggle"
           language={language}
           lessonId={lessonId}
           prompt={exercise.prompt}

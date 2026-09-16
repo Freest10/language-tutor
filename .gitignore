@@ -16,3 +16,8 @@ models/
 .env.*.local
 .eslintcache
 .vitest/
+
+# Десктопная сборка
+desktop/resources/
+desktop/.cache/
+desktop/release/

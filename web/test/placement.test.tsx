@@ -33,6 +33,7 @@ import { App } from '../src/App';
 import { PlacementChat } from '../src/features/placement/PlacementChat';
 import { PLACEMENT_SESSION_STORAGE_KEY } from '../src/features/placement/usePlacement';
 import { i18n } from '../src/i18n';
+import { textWithConfigHint } from './support/hints';
 import { I18nProvider } from '../src/i18n/I18nProvider';
 import { routes } from '../src/router';
 
@@ -41,8 +42,9 @@ const CONFIG_FIXTURE: AppConfig = {
   appName: APP_NAME,
   apiPrefix: API_PREFIX,
   version: '0.1.0',
+  configSource: 'env',
   llm: { available: true, model: 'qwen2.5', reason: null },
-  stt: { provider: 'browser', available: true, model: null, reason: null },
+  stt: { provider: 'browser', available: true, model: null, requiresWav16: false, reason: null },
   tts: {
     provider: 'browser',
     available: true,
@@ -232,7 +234,7 @@ function renderPlacement() {
 
 /** Перевод ключа namespace `placement`. */
 function tp(key: string, params?: Record<string, unknown>): string {
-  return i18n.t(`placement:${key}`, params ?? {});
+  return textWithConfigHint(`placement:${key}`, params ?? {});
 }
 
 /** Отвечает на текущий вопрос текстом ответа. */

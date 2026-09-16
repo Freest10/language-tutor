@@ -5,15 +5,19 @@
  * по возрастанию версии внутри транзакции; применённая версия хранится в `PRAGMA user_version`.
  * Запуск идемпотентен: повторный вызов на актуальной базе не выполняет ни одного файла.
  *
- * Точки входа: `getDb()` (старт приложения) и `npm run db:migrate` (этот файл как скрипт).
+ * Точки входа: `getDb()` (старт приложения) и `npm run db:migrate` (`migrateCli.ts`).
+ *
+ * Сам файл ничего не выполняет при импорте: запуск из командной строки живёт
+ * в `migrateCli.ts`. Иначе сборка сервера в один файл (десктопная версия)
+ * применяла бы миграции просто потому, что модуль оказался внутри бандла.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 // Взаимный импорт с `connection.ts` намеренный: обе стороны обращаются к чужим функциям
 // только во время вызова, поэтому порядок инициализации модулей значения не имеет.
-import { openDatabase, resolveDbPath, type Db } from './connection.js';
+import type { Db } from './connection.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -112,32 +116,4 @@ export function migrate(db: Db, migrations: Migration[] = loadMigrations()): Mig
   }
 
   return { from, to: getSchemaVersion(db), applied };
-}
-
-/** `npm run db:migrate`: применяет миграции к файлу базы из `DB_PATH`. */
-function main(): void {
-  const dbPath = resolveDbPath();
-  const db = openDatabase(dbPath);
-
-  try {
-    const { from, to, applied } = migrate(db);
-
-    if (applied.length === 0) {
-      console.log(`[db:migrate] схема актуальна (версия ${to}), база: ${dbPath}`);
-      return;
-    }
-
-    for (const migration of applied) {
-      console.log(`[db:migrate] применена ${migration.name}`);
-    }
-    console.log(`[db:migrate] версия схемы ${from} → ${to}, база: ${dbPath}`);
-  } finally {
-    db.close();
-  }
-}
-
-const entrypoint = process.argv[1];
-
-if (entrypoint !== undefined && import.meta.url === pathToFileURL(entrypoint).href) {
-  main();
 }

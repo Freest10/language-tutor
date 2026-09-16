@@ -1,5 +1,14 @@
 /**
- * Лента урока: реплики ученика и тьютора в порядке произнесения.
+ * Лента урока: диалог ученика и тьютора.
+ *
+ * Оформлена как переписка: реплики тьютора слева, реплики ученика справа, у
+ * каждой стороны свой кружок с буквой роли. Так видно разговор, а не документ,
+ * и взгляд не ищет, кто что сказал. У ленты своя область прокрутки: поле ввода
+ * и панель заданий должны оставаться на экране и на длинном уроке.
+ *
+ * Своей карточки у ленты нет: она и поле ввода — части одной панели диалога
+ * (`LessonRoomPage`), потому что писать реплику в отдельной карточке рядом с
+ * чатом — это не переписка, а форма рядом с протоколом.
  *
  * Лента объявлена как `role="log"` с `aria-live="polite"`: ответ тьютора,
  * исправления и состояние «тьютор думает» читаются экранной читалкой сами,
@@ -19,7 +28,8 @@ import type { LessonMessage } from '@lt/shared';
 import { FeedbackCard } from './FeedbackCard';
 import type { PendingTurn } from './useLessonSession';
 
-import { useT } from '../../i18n/useT';
+import { useLocale, useT } from '../../i18n/useT';
+import { formatTime } from '../../lib/format';
 
 /** Свойства ленты реплик. */
 export interface ChatTranscriptProps {
@@ -42,13 +52,6 @@ export interface ChatTranscriptProps {
   /** Повторить отправку неподтверждённой реплики; не задан — повторять нечего. */
   onRetryPending?: () => void;
 }
-
-/** Оформление бейджа роли: ученик, тьютор или служебная реплика. */
-const ROLE_BADGE: Record<LessonMessage['role'], string> = {
-  user: 'lt-badge',
-  tutor: 'lt-badge lt-badge--ok',
-  system: 'lt-badge lt-badge--muted',
-};
 
 /** Свойства одной реплики. */
 interface TranscriptItemProps {
@@ -73,55 +76,76 @@ function TranscriptItem({
   onRetryPending,
 }: TranscriptItemProps) {
   const t = useT('lessonRoom');
+  const { locale } = useLocale();
   const isTutor = message.role === 'tutor';
+  const roleLabel = t(`transcript.roles.${message.role}`);
+  const bubbleClass = [
+    'lt-chat__bubble',
+    pendingState === 'sending' ? 'lt-chat__bubble--pending' : '',
+    pendingState === 'failed' ? 'lt-chat__bubble--failed' : '',
+  ]
+    .filter((name) => name !== '')
+    .join(' ');
 
   return (
-    <li className="lt-list__item" data-role={message.role} data-source={message.source}>
-      <p>
-        <span className={ROLE_BADGE[message.role]}>{t(`transcript.roles.${message.role}`)}</span>{' '}
-        <span className="lt-badge lt-badge--muted">
-          {t(`transcript.sources.${message.source}`)}
-        </span>{' '}
-        {pendingState === 'sending' && (
-          <span className="lt-badge lt-badge--muted">{t('transcript.pending')}</span>
-        )}
-        {pendingState === 'failed' && (
-          <span className="lt-badge lt-badge--error">{t('transcript.notDelivered')}</span>
-        )}
-      </p>
-      <p>{message.content}</p>
-
-      {message.corrections.length > 0 && (
-        <FeedbackCard corrections={message.corrections} title={t('transcript.corrections')} />
+    <li
+      className={`lt-chat__row lt-chat__row--${message.role}`}
+      data-role={message.role}
+      data-source={message.source}
+    >
+      {message.role !== 'system' && (
+        // Буква роли — украшение для глаза: читалке роль сообщает текст в реплике.
+        <span className="lt-chat__avatar" aria-hidden="true">
+          {roleLabel.slice(0, 1)}
+        </span>
       )}
 
-      {isTutor && canSpeak && (
-        <p>
-          {isSpeaking ? (
-            <button type="button" className="lt-button" onClick={onStopSpeaking}>
-              {t('common:actions.stop')}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="lt-button"
-              onClick={() => {
-                onSpeak?.(message);
-              }}
-            >
-              {t('transcript.actions.speak')}
+      <div className="lt-chat__group">
+        <p className={bubbleClass}>
+          <span className="lt-visually-hidden">{roleLabel}: </span>
+          {message.content}
+        </p>
+
+        <p className="lt-chat__meta">
+          <span className="lt-chat__time">{formatTime(message.createdAt, locale)}</span>
+          <span>{t(`transcript.sources.${message.source}`)}</span>
+
+          {pendingState === 'sending' && <span>{t('transcript.pending')}</span>}
+          {pendingState === 'failed' && (
+            <span className="lt-badge lt-badge--error">{t('transcript.notDelivered')}</span>
+          )}
+
+          {isTutor &&
+            canSpeak &&
+            (isSpeaking ? (
+              <button type="button" className="lt-chat__action" onClick={onStopSpeaking}>
+                {t('common:actions.stop')}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="lt-chat__action"
+                onClick={() => {
+                  onSpeak?.(message);
+                }}
+              >
+                {t('transcript.actions.speak')}
+              </button>
+            ))}
+
+          {pendingState === 'failed' && onRetryPending && (
+            <button type="button" className="lt-chat__action" onClick={onRetryPending}>
+              {t('transcript.actions.retryTurn')}
             </button>
           )}
         </p>
-      )}
 
-      {pendingState === 'failed' && onRetryPending && (
-        <p>
-          <button type="button" className="lt-button" onClick={onRetryPending}>
-            {t('transcript.actions.retryTurn')}
-          </button>
-        </p>
-      )}
+        {message.corrections.length > 0 && (
+          <div className="lt-chat__aside">
+            <FeedbackCard corrections={message.corrections} title={t('transcript.corrections')} />
+          </div>
+        )}
+      </div>
     </li>
   );
 }
@@ -144,17 +168,18 @@ export function ChatTranscript({
   const isEmpty = messages.length === 0 && pendingTurn === null;
 
   useEffect(() => {
-    // Новая реплика не должна оставаться за нижним краем ленты.
-    endRef.current?.scrollIntoView?.({ block: 'nearest' });
+    // Новая реплика не должна оставаться за нижним краем ленты: `nearest`
+    // останавливается, как только край показался, и подпись под репликой
+    // (время, кнопка «озвучить») оставалась бы срезанной.
+    endRef.current?.scrollIntoView?.({ block: 'end' });
   }, [lastId]);
 
   return (
-    <section className="lt-card" aria-labelledby="lt-lesson-transcript-title">
-      <h2 id="lt-lesson-transcript-title">{t('transcript.title')}</h2>
-
+    <>
       {hasOlderMessages && <p className="lt-status">{t('transcript.truncated')}</p>}
 
       <div
+        className="lt-chat"
         role="log"
         aria-live="polite"
         aria-busy={isThinking}
@@ -163,7 +188,7 @@ export function ChatTranscript({
         {isEmpty && !isThinking && <p className="lt-placeholder">{t('transcript.empty')}</p>}
 
         {!isEmpty && (
-          <ol className="lt-list">
+          <ol className="lt-chat__list">
             {messages.map((message) => (
               <TranscriptItem
                 key={message.id}
@@ -186,13 +211,18 @@ export function ChatTranscript({
         )}
 
         {isThinking && (
-          <p className="lt-status" role="status">
+          <p className="lt-chat__notice" role="status">
+            <span className="lt-chat__dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>{' '}
             {t('transcript.thinking')}
           </p>
         )}
 
         <div ref={endRef} aria-hidden="true" />
       </div>
-    </section>
+    </>
   );
 }

@@ -60,6 +60,24 @@ export function formatDate(
  * @param locale язык интерфейса.
  * @returns дату со временем или исходную строку, если она не разбирается.
  */
+/**
+ * Только время, без даты: подпись реплики в ленте урока.
+ *
+ * Дата там не нужна — урок идёт в один присест, и повторять её у каждой реплики
+ * значило бы засорять диалог.
+ *
+ * @param isoDate момент времени в ISO-8601.
+ * @param locale язык интерфейса.
+ * @returns время или исходную строку, если она не разбирается.
+ */
+export function formatTime(isoDate: string, locale: string): string {
+  const date = parseIsoDate(isoDate);
+
+  return date === null
+    ? isoDate
+    : new Intl.DateTimeFormat(locale, { timeStyle: 'short' }).format(date);
+}
+
 export function formatDateTime(isoDate: string, locale: string): string {
   const date = parseIsoDate(isoDate);
 

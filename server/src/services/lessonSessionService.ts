@@ -77,8 +77,10 @@ import {
   type TutorMaterialExcerpt,
   type TutorPromptContext,
   type TutorTranscript,
+  type TutorTurnReply,
   type TutorVocabularyReply,
 } from '../prompts/tutorTurn.js';
+import { isRepeatedUtterance } from '../lib/repetition.js';
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import { isProviderError, type ProviderLogger } from '../providers/types.js';
 import {
@@ -177,6 +179,67 @@ function currentStep(lesson: Lesson): LessonPlanStep | undefined {
 /** Первый непройденный шаг после указанного; `undefined` — план кончился. */
 function nextPendingStep(lesson: Lesson, step: LessonPlanStep): LessonPlanStep | undefined {
   return lesson.plan.find((item) => item.order > step.order && item.status === 'pending');
+}
+
+/** Сколько последних реплик тьютора проверяется на повтор. */
+const REPEAT_LOOKBACK = 4;
+
+/**
+ * Сколько реплик ученика должно прозвучать на шаге, прежде чем тьютору
+ * разрешено его закрыть.
+ *
+ * Без нижней границы модель, которой нечего спросить, закрывала бы шаг первой
+ * же репликой, и план урока проскакивал бы целиком за пару ходов.
+ */
+const MIN_LEARNER_TURNS_BEFORE_CLOSE = 2;
+
+/** Последние реплики тьютора — с ними сравнивается новая. */
+function recentTutorLines(transcript: TutorTranscript): string[] {
+  return transcript.recent
+    .filter((message) => message.role === 'tutor')
+    .slice(-REPEAT_LOOKBACK)
+    .map((message) => message.content);
+}
+
+/**
+ * Можно ли закрыть шаг по решению тьютора.
+ *
+ * Невыполненное задание держит шаг открытым: иначе ученик отвечал бы на задание
+ * шага, который уже закрыт. Реплики ученика считаются по окну истории, текущая
+ * реплика в него не входит — поэтому единица прибавляется.
+ */
+function canCloseStep(
+  step: LessonPlanStep,
+  transcript: TutorTranscript,
+  hasPending: boolean,
+): boolean {
+  if (hasPending) {
+    return false;
+  }
+
+  const answers = transcript.recent.filter(
+    (message) => message.role === 'user' && message.stepId === step.id,
+  ).length;
+
+  return answers + 1 >= MIN_LEARNER_TURNS_BEFORE_CLOSE;
+}
+
+/**
+ * Закрывает шаг и открывает следующий; возвращает изменённые шаги
+ * (`[закрытый]` или `[закрытый, начатый]`).
+ */
+function closeStepAt(lesson: Lesson, step: LessonPlanStep, at: string): LessonPlanStep[] {
+  const finished: LessonPlanStep = {
+    ...step,
+    status: 'completed',
+    startedAt: step.startedAt ?? at,
+    completedAt: at,
+  };
+  const next = nextPendingStep(lesson, step);
+
+  return next === undefined
+    ? [finished]
+    : [finished, { ...next, status: 'in_progress', startedAt: at }];
 }
 
 /** План урока с заменёнными шагами: остальные остаются как были. */
@@ -519,40 +582,83 @@ export async function submitLessonTurn(
   const profile = getProfile();
   const context = promptContext(lesson, profile, step?.id ?? null);
   const pending = hasPendingExercise(lesson.id, step);
-  const { data } = await requestStructuredJson({
-    schema: tutorTurnSchema,
-    messages: buildTutorTurnMessages(context, {
-      step,
-      transcript: transcriptOf(lesson.id, learnerMessage.id),
-      learnerMessage: input.text,
-      spoken: input.source === 'voice',
-      excerpts: step === undefined ? [] : stepExcerpts(lesson, step),
-      hasPendingExercise: pending,
-    }),
-    schemaName: 'tutor_turn',
-    temperature: TUTOR_TEMPERATURE,
-    logger: options.logger,
-  });
+  const transcript = transcriptOf(lesson.id, learnerMessage.id);
+
+  /** Один заход к модели за ответом тьютора. */
+  const askTutor = async (avoidRepeat: boolean): Promise<TutorTurnReply> =>
+    (
+      await requestStructuredJson({
+        schema: tutorTurnSchema,
+        messages: buildTutorTurnMessages(context, {
+          step,
+          transcript,
+          learnerMessage: input.text,
+          spoken: input.source === 'voice',
+          excerpts: step === undefined ? [] : stepExcerpts(lesson, step),
+          hasPendingExercise: pending,
+          avoidRepeat,
+        }),
+        schemaName: 'tutor_turn',
+        temperature: TUTOR_TEMPERATURE,
+        logger: options.logger,
+      })
+    ).data;
+
+  let data = await askTutor(false);
+
+  // Зацикливание модель за собой не замечает, а ученику оно видно сразу: он
+  // отвечает на тот же вопрос второй раз. Один повторный заход с прямым
+  // указанием обычно разворачивает разговор; если и он повторился — отдаём как
+  // есть, потому что молчание вместо реплики хуже повтора.
+  if (isRepeatedUtterance(data.message, recentTutorLines(transcript))) {
+    options.logger?.warn?.(
+      { lessonId: lesson.id, stepId: step?.id ?? null },
+      'Реплика тьютора повторяет уже сказанное: повторный заход',
+    );
+    data = await askTutor(true);
+  }
+  const closesStep =
+    step !== undefined && data.stepComplete && canCloseStep(step, transcript, pending);
   const exercises =
-    data.needsExercise && !pending && step !== undefined
+    data.needsExercise && !pending && !closesStep && step !== undefined
       ? await tryGenerateExercises(lesson, step, context, options)
       : [];
   const answeredAt = nowIso();
   const userMessage: LessonMessage = { ...learnerMessage, corrections: data.corrections };
   const reply = tutorMessage(lesson, step, data.message, { createdAt: answeredAt });
-  const updatedStep =
+  const withExercises =
     step === undefined || exercises.length === 0
-      ? undefined
+      ? step
       : { ...step, exerciseIds: [...step.exerciseIds, ...exercises.map((item) => item.id)] };
+  // Тьютор сам сказал, что на шаге всё: закрываем его и открываем следующий.
+  // Вводную реплику нового шага модель не пишет — она уже попрощалась с прошлым
+  // шагом в своём ответе, и второе сообщение подряд выглядело бы как сбой.
+  const changedSteps =
+    withExercises === undefined
+      ? []
+      : closesStep
+        ? closeStepAt(lesson, withExercises, answeredAt)
+        : withExercises === step
+          ? []
+          : [withExercises];
+  const startedStep = changedSteps.at(1);
   const updated: Lesson = {
     ...lesson,
-    plan: withSteps(lesson, updatedStep === undefined ? [] : [updatedStep]),
+    plan: withSteps(lesson, changedSteps),
+    ...(closesStep ? { currentStepId: startedStep?.id ?? null } : {}),
     updatedAt: answeredAt,
   };
 
+  if (closesStep) {
+    options.logger?.debug?.(
+      { lessonId: lesson.id, stepId: step?.id ?? null, nextStepId: startedStep?.id ?? null },
+      'Шаг урока закрыт по решению тьютора',
+    );
+  }
+
   saveLessonProgress({
     lesson: updated,
-    steps: updatedStep === undefined ? [] : [updatedStep],
+    steps: changedSteps,
     messages: [reply],
     updatedMessages: [userMessage],
     exercises,

@@ -47,15 +47,15 @@
     "skipped": "Skipped"
   },
   "errors": {
-    "notConfigured": "The language model is not configured, so a lesson plan cannot be generated. Check the provider and the model in .env and restart the server.",
+    "notConfigured": "The language model is not configured, so a lesson plan cannot be generated. Check the provider address and the model name. {{where}}",
     "upstreamUnavailable": "The language model is unavailable: usually it is stopped or busy with another request.",
     "upstreamError": "The language model returned an answer the application could not read.",
     "modelNotFound": "The model “{{model}}” is not installed on the provider, so a lesson plan cannot be generated.",
     "responseTruncated": "The model cut its answer off mid-word: the lesson plan did not fit into its context window.",
-    "setupHint": "Planning runs through a language model. A local model needs no key: set LLM_BASE_URL (http://localhost:11434/v1 by default) and LLM_MODEL in .env, then restart the server. LLM_API_KEY is only needed by a cloud provider.",
+    "setupHint": "Planning runs through a language model. A local model needs no key: set the provider address (http://localhost:11434/v1 by default) and the model name; an API key is only needed by a cloud provider. {{where}}",
     "startHint": "The model is probably just not running. Start it with `ollama serve`, then `ollama pull qwen3:8b` — or `npm run stack:up` if you prefer Docker. Run `npm run smoke` to see which step fails.",
-    "retryHint": "The model replied off-schema. Try again: the app makes one repair attempt and the second run often succeeds. If it keeps failing, set a larger model (8B or above) in LLM_MODEL.",
-    "modelNotFoundHint": "Retrying will not help: the provider has no model under that name. Install it (`ollama pull` with that name) or put an already installed one into LLM_MODEL — `ollama list` shows which ones you have — and restart the server.",
+    "retryHint": "The model replied off-schema. Try again: the app makes one repair attempt and the second run often succeeds. If it keeps failing, pick a larger model (8B or above). {{where}}",
+    "modelNotFoundHint": "Retrying will not help: the provider has no model under that name. Install it (`ollama pull` with that name) or pick one you already have — `ollama list` shows them. {{where}}",
     "responseTruncatedHint": "Retrying will not help — the answer is cut at the same place. Raise the model context window (for Ollama that is OLLAMA_CONTEXT_LENGTH=8192, the num_ctx option in a Modelfile, or the “Context length” setting in the Ollama app) and restart it. The other way is a shorter lesson: fewer minutes and fewer materials at once.",
     "materialsNotReady": "Some of the picked materials have no extracted text yet, so the lesson was not created.",
     "materialNotFound": "One of the picked materials no longer exists: refresh the list of materials.",
@@ -115,7 +115,7 @@
       "unknown": "The server configuration is unavailable, so it is unknown whether the language model is ready. You can still try to generate the plan.",
       "unavailable": {
         "title": "The language model is not configured",
-        "description": "A lesson plan is written by a language model. Set the provider and the model in .env, restart the server and come back."
+        "description": "A lesson plan is written by a language model. Set the provider address and the model name, then come back. {{where}}"
       }
     },
     "topic": {

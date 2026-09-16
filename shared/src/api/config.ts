@@ -27,6 +27,16 @@ export const sttCapabilitySchema = z.object({
   provider: voiceProviderSchema,
   available: z.boolean(),
   model: z.string().nullish(),
+  /**
+   * Присылать запись только как WAV 16 кГц моно.
+   *
+   * Клиент по умолчанию пишет `audio/webm;codecs=opus` — это самый компактный
+   * контейнер, и облачный OpenAI с faster-whisper-server его распаковывают.
+   * Встроенный в приложение whisper.cpp декодирует звук библиотекой miniaudio,
+   * которая знает WAV, MP3 и FLAC, но не Opus, поэтому запись для него нужно
+   * перекодировать в браузере. Флаг сообщает клиенту, что это тот случай.
+   */
+  requiresWav16: z.boolean().default(false),
   reason: z.string().nullish(),
 });
 
@@ -70,11 +80,28 @@ export const configLimitsSchema = z.object({
 /** Ограничения сервера. */
 export type ConfigLimits = z.infer<typeof configLimitsSchema>;
 
+/**
+ * Откуда приложение берёт настройки.
+ *
+ * Нужно интерфейсу, чтобы подсказка «поправьте настройки» вела туда, где они
+ * на самом деле лежат: у веб-версии это файл `.env` и перезапуск сервера,
+ * у десктопной — пункт меню, файла `.env` там нет вовсе.
+ */
+export const CONFIG_SOURCES = ['env', 'desktop'] as const;
+
+/** Откуда приложение берёт настройки. */
+export type ConfigSource = (typeof CONFIG_SOURCES)[number];
+
+/** Откуда приложение берёт настройки. */
+export const configSourceSchema = z.enum(CONFIG_SOURCES);
+
 /** Конфигурация приложения, отдаваемая клиенту. */
 export const appConfigSchema = z.object({
   appName: z.string().min(1),
   apiPrefix: z.string().min(1),
   version: z.string().min(1),
+  /** Где пользователю искать настройки приложения. */
+  configSource: configSourceSchema.default('env'),
   llm: llmCapabilitySchema,
   stt: sttCapabilitySchema,
   tts: ttsCapabilitySchema,
