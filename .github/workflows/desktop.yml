@@ -17,6 +17,15 @@ on:
   # Запуск руками: собирать установщики на каждый коммит незачем — это долго
   # и упирается в закреплённую версию whisper.cpp, которая меняется редко.
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Какие установщики собрать
+        type: choice
+        default: обе
+        options:
+          - обе
+          - macOS
+          - Windows
   push:
     tags:
       - 'v*'
@@ -39,6 +48,11 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
+    # Сборка по тегу делает обе платформы; ручной запуск — те, что выбрали.
+    if: >-
+      ${{ github.event_name != 'workflow_dispatch'
+      || inputs.platform == 'обе'
+      || inputs.platform == matrix.name }}
 
     steps:
       - uses: actions/checkout@v4

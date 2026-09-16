@@ -50,8 +50,17 @@ npm run pack:win -w @lt/desktop  # .exe (NSIS) в desktop/release
 ```
 
 Установщик под macOS собирается только на macOS, под Windows — только на Windows: этого
-требуют и упаковщики платформ, и нативная сборка whisper.cpp. Готовая матрица —
-`.github/workflows/desktop.yml` (запускается руками или по тегу `v*`).
+требуют и упаковщики платформ, и нативная сборка whisper.cpp. Поэтому обе платформы собирает
+GitHub Actions — `.github/workflows/desktop.yml`:
+
+1. **Actions → desktop → Run workflow**, выбрать ветку и платформу (обе, macOS или Windows);
+2. дождаться прогона: ~10 минут, первый раз дольше — компилируется whisper.cpp, дальше он
+   берётся из кэша;
+3. установщики — внизу страницы прогона, в разделе **Artifacts**: `language-tutor-macOS`
+   (`.dmg`) и `language-tutor-Windows` (`.exe`), zip-архивами, хранятся 90 дней.
+
+То же из командной строки: `gh workflow run desktop.yml --ref <ветка> -f platform=обе`,
+а потом `gh run download <id>`. Сборка идёт и по тегу `v*` — тогда собираются обе платформы.
 
 `npm run pack:*` пересобирает рабочие пространства, чьи исходники новее сборки, поэтому
 отдельно звать `npm run build` не нужно.
