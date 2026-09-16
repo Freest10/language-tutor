@@ -7,11 +7,17 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { resolvePaths, resolveWhisperModel, whisperBinaryName } from '../src/paths.js';
+
+/** Путь с прямыми слэшами: в Windows `join` даёт обратные, и сравнение с
+ * образцом ломалось бы на разделителе, а не на сути. */
+function posix(path: string): string {
+  return path.split(sep).join('/');
+}
 
 let workDir: string;
 
@@ -59,7 +65,7 @@ describe('resolvePaths', () => {
 
   it('знает, где лежит иконка для запуска из исходников', () => {
     // В доке у запуска из исходников иначе висит логотип Electron.
-    expect(paths().appIconFile.endsWith('build-assets/icon.png')).toBe(true);
+    expect(posix(paths().appIconFile).endsWith('build-assets/icon.png')).toBe(true);
   });
 
   it('знает про расширение исполняемого файла в Windows', () => {

@@ -83,7 +83,12 @@ function buildWorkspaces() {
     }
 
     console.log(`${workspace.name}: собираем…`);
-    execFileSync('npm', ['run', 'build', '-w', workspace.name], { cwd: repoDir, stdio: 'inherit' });
+    // В Windows npm — это `npm.cmd`, и `execFile` без расширения его не найдёт.
+    execFileSync(
+      process.platform === 'win32' ? 'npm.cmd' : 'npm',
+      ['run', 'build', '-w', workspace.name],
+      { cwd: repoDir, stdio: 'inherit' },
+    );
   }
 }
 

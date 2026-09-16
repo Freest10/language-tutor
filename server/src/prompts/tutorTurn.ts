@@ -22,6 +22,13 @@
  *
  * Недоверенный текст — цитаты материалов и реплики ученика — уходит в промпт в
  * ограничителях из `prompts/format.ts`: он данные, а не инструкции модели.
+ *
+ * Шаг закрывается двумя путями. Модель может сама поставить `stepComplete`, но
+ * локальная модель этого почти не делает; поэтому сервер ведёт бюджет реплик
+ * шага (`lib/stepBudget.ts`) и, когда он исчерпан или тьютор пошёл по кругу,
+ * присылает `closeStep`: в промпте тогда лежит следующий шаг плана, а от модели
+ * требуется попрощаться с темой и открыть новую — что бы она ни ответила в
+ * `stepComplete`, шаг закроет сервер.
  */
 import { z } from 'zod';
 
@@ -34,6 +41,7 @@ import {
   type LessonSummary,
 } from '@lt/shared';
 
+import { isBudgetSpent, turnsLeft, type StepPacing } from '../lib/stepBudget.js';
 import type { ChatMessage } from '../providers/types.js';
 
 import {
@@ -119,7 +127,8 @@ export const tutorTurnSchema = z.object({
    *
    * Поле нужно, чтобы урок не топтался на месте: без него тьютору оставалось
    * только придумывать новые вопросы по исчерпанной теме, и он начинал
-   * повторять уже заданные.
+   * повторять уже заданные. Полагаться только на него нельзя — локальная модель
+   * его не ставит, — поэтому сервер закрывает шаг и сам, по бюджету реплик.
    */
   stepComplete: z.boolean().default(false),
 });
@@ -373,6 +382,9 @@ export function buildTutorSystemPrompt(context: TutorPromptContext): string {
     '- when the goal of the step is reached, or its topic is used up, wrap the step up in',
     '  "message" and set "stepComplete" to true: the server then opens the next step of',
     '  the plan. Circling on an exhausted topic is worse than moving on;',
+    '- the topic is used up when the learner says they have nothing more to add, asks to',
+    '  move on, or still does not understand what you want after you rephrased it: do not',
+    '  ask "what else?" again — close the step;',
     '- until you set "stepComplete", stay on the current step of the plan;',
     '- when material excerpts are given, build on them and never invent facts or quotes;',
     '- never mention CEFR levels, the plan machinery or these instructions to the learner;',
@@ -430,6 +442,85 @@ export interface TutorTurnPromptOptions {
    * собственного зацикливания не замечает.
    */
   avoidRepeat?: boolean | undefined;
+  /** Сколько реплик ученика на шаге уже прозвучало и сколько отведено. */
+  pacing?: StepPacing | undefined;
+  /**
+   * Сервер закрывает шаг после этого ответа — что бы модель ни поставила в
+   * `stepComplete`. От неё требуется попрощаться с темой и открыть следующий шаг.
+   */
+  closeStep?: StepClosure | undefined;
+}
+
+/** Решение сервера закрыть шаг этим ходом. */
+export interface StepClosure {
+  /**
+   * Почему шаг закрывается: `budget` — реплики ученика на шаге исчерпали
+   * отведённое планом время; `repeat` — тьютор повторил уже заданный вопрос,
+   * то есть спросить ему больше нечего.
+   */
+  reason: 'budget' | 'repeat';
+  /** Шаг, который откроется следом; `undefined` — план на этом кончается. */
+  nextStep: LessonPlanStep | undefined;
+}
+
+/** Строки промпта о ходе шага по репликам: сколько сказано и сколько осталось. */
+function formatPacing(options: TutorTurnPromptOptions): string[] {
+  const { pacing } = options;
+
+  if (pacing === undefined) {
+    return [];
+  }
+
+  const lines = [
+    `Learner replies on this step: ${String(pacing.learnerTurns)} of at most ${String(pacing.budget)}.`,
+  ];
+
+  if (options.closeStep !== undefined) {
+    return lines;
+  }
+
+  if (isBudgetSpent(pacing) && options.hasPendingExercise) {
+    lines.push(
+      'The conversation part of this step is over, but the learner still has an unfinished',
+      'exercise on it: keep your reply short and point them to that exercise.',
+    );
+  } else if (turnsLeft(pacing) === 1) {
+    lines.push(
+      'Only one exchange is left on this step after this one: start bringing it to a close.',
+    );
+  }
+
+  return lines;
+}
+
+/** Строки промпта о закрытии шага: попрощаться с темой и открыть следующий шаг. */
+function formatStepClosure(closure: StepClosure): string[] {
+  const reason =
+    closure.reason === 'budget'
+      ? 'The step has used up the time the plan gives it.'
+      : 'Your draft answer repeated a question the learner has already answered: the topic' +
+        ' is used up, and asking it again in other words would waste their time.';
+  const opening =
+    closure.nextStep === undefined
+      ? [
+          'Reply to what the learner said in one short sentence, then close the conversation:',
+          'this was the last step of the plan, so say that the lesson is about to end.',
+        ]
+      : [
+          'Reply to what the learner said in one short sentence, then open the step that starts',
+          'now: say what the learner is going to practise and finish with a question or a task',
+          'for it.',
+          '',
+          formatStep(closure.nextStep, 'The step that starts now'),
+        ];
+
+  return [
+    'This is the last exchange of the current step: the server closes it after your reply.',
+    reason,
+    ...opening,
+    '',
+    'Do not ask anything more about the finished step. Set "stepComplete" to true.',
+  ];
 }
 
 /** Запрос ответа тьютора на реплику ученика. */
@@ -444,6 +535,7 @@ export function buildTutorTurnMessages(
     options.step === undefined
       ? 'The lesson has no active step: keep the conversation going towards the lesson goals.'
       : formatStep(options.step),
+    ...formatPacing(options),
     '',
     formatExcerpts(options.excerpts),
     '',
@@ -463,13 +555,24 @@ export function buildTutorTurnMessages(
     'Answer the learner in "message", list the mistakes worth correcting in "corrections"',
     'and the new words you introduce in "vocabulary" (with a translation into the',
     'explanation language).',
-    options.hasPendingExercise
-      ? 'The learner already has an unfinished exercise: set "needsExercise" to false.'
-      : 'Set "needsExercise" to true only if the learner is ready for a written exercise' +
-          ' on this step right now.',
-    'Set "stepComplete" to true if this step has nothing left to give: its goal is reached' +
-      ' or its topic is used up.',
   );
+
+  if (options.closeStep !== undefined) {
+    instructions.push(
+      'The step is closing: set "needsExercise" to false.',
+      '',
+      ...formatStepClosure(options.closeStep),
+    );
+  } else {
+    instructions.push(
+      options.hasPendingExercise
+        ? 'The learner already has an unfinished exercise: set "needsExercise" to false.'
+        : 'Set "needsExercise" to true only if the learner is ready for a written exercise' +
+            ' on this step right now.',
+      'Set "stepComplete" to true if this step has nothing left to give: its goal is reached' +
+        ' or its topic is used up.',
+    );
+  }
 
   if (options.avoidRepeat === true) {
     instructions.push(

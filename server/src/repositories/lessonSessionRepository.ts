@@ -200,6 +200,23 @@ export function countLessonMessages(lessonId: Id): number {
   return total;
 }
 
+/**
+ * Число реплик шага с указанной ролью.
+ *
+ * По репликам ученика считается бюджет шага (`lib/stepBudget.ts`): окно истории
+ * для этого не годится — оно ограничено числом реплик и не отличает шаг,
+ * который идёт долго, от только что начатого.
+ */
+export function countStepMessages(lessonId: Id, stepId: Id, role: LessonMessage['role']): number {
+  const { total } = getDb()
+    .prepare(
+      'SELECT COUNT(*) AS total FROM lesson_messages WHERE lesson_id = ? AND step_id = ? AND role = ?',
+    )
+    .get(lessonId, stepId, role) as { total: number };
+
+  return total;
+}
+
 /** Страница истории диалога с фильтрами по шагу и роли. */
 export function listLessonMessages(
   lessonId: Id,

@@ -261,6 +261,10 @@ describe('готовность распознавания', () => {
   });
 
   it('без единого бэкенда OCR называет, чего не хватает', async () => {
+    // Растеризатор проверяется раньше OCR, и без него сообщение было бы про
+    // poppler. Подменяем его заведомо существующей программой: проверяется
+    // текст про распознаватели, а не наличие утилит на машине.
+    setRasterizerCommand(process.execPath);
     setOcrBackend(stubBackend({ available: false }));
 
     const availability = await checkScanAvailability();
@@ -437,6 +441,8 @@ describe('скан без распознавания', () => {
   });
 
   it('без бэкенда OCR даёт понятный статус, а не исключение', async () => {
+    // См. соседний тест: растеризатор подменён, чтобы дело дошло до OCR.
+    setRasterizerCommand(process.execPath);
     setOcrBackend(stubBackend({ available: false }));
 
     const material = await uploadScan();

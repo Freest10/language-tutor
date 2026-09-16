@@ -12,7 +12,6 @@
  * посторонним это не позволяет, а найти установленную — да.
  */
 import { existsSync } from 'node:fs';
-import { delimiter } from 'node:path';
 
 /** Где на macOS и Linux обычно лежат утилиты, поставленные пакетным менеджером. */
 const UNIX_TOOL_DIRS = [
@@ -29,6 +28,16 @@ const WINDOWS_TOOL_DIRS = [
   'C:\\Program Files\\poppler\\Library\\bin',
   'C:\\ProgramData\\chocolatey\\bin',
 ];
+
+/**
+ * Чем разделяются каталоги в PATH: в Windows точкой с запятой.
+ *
+ * Берётся у платформы из аргумента, а не у той, где запущен код: иначе
+ * функцию нельзя проверить тестом для чужой платформы.
+ */
+function pathDelimiter(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? ';' : ':';
+}
 
 /** Каталоги, в которые стоит заглянуть на этой платформе. */
 export function commonToolDirs(platform: NodeJS.Platform): string[] {
@@ -48,7 +57,8 @@ export function withCommonToolPaths(
   platform: NodeJS.Platform = process.platform,
   exists: (path: string) => boolean = existsSync,
 ): string {
-  const parts = (currentPath ?? '').split(delimiter).filter((part) => part.length > 0);
+  const separator = pathDelimiter(platform);
+  const parts = (currentPath ?? '').split(separator).filter((part) => part.length > 0);
   const known = new Set(parts);
 
   for (const directory of commonToolDirs(platform)) {
@@ -58,5 +68,5 @@ export function withCommonToolPaths(
     }
   }
 
-  return parts.join(delimiter);
+  return parts.join(separator);
 }

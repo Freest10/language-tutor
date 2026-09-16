@@ -15,6 +15,12 @@
  * Короткие реплики («Отлично!», «А ещё?») повтором не считаются: у них слишком
  * мало слов, чтобы отличить осмысленное совпадение от случайного, и запрещать
  * их значило бы запретить тьютору обычные связки.
+ *
+ * Отдельно сравнивается вопрос, которым реплика заканчивается. Тьютор по правилам
+ * промпта сначала откликается на сказанное учеником и только потом спрашивает,
+ * поэтому реплика «Ты любишь кафе. А что ещё вы делаете вместе?» на множестве
+ * слов почти не похожа на «Ты любишь гулять. Отлично! А что ещё вы делаете
+ * вместе?» — а для ученика это тот же вопрос в третий раз.
  */
 
 /**
@@ -73,20 +79,55 @@ export function wordSimilarity(left: string, right: string): number {
 }
 
 /**
- * Повторяет ли реплика одну из предыдущих.
+ * Вопрос, которым заканчивается реплика: последнее предложение, если оно
+ * вопросительное. `undefined` — реплика заканчивается не вопросом.
+ *
+ * Границей предложения считаются `.`, `!`, `?` и их восточноазиатские и
+ * испанские варианты; достаточно, чтобы отделить вопрос от отклика перед ним.
+ */
+export function closingQuestion(text: string): string | undefined {
+  const trimmed = text.trim();
+
+  if (!/[?？]$/u.test(trimmed)) {
+    return undefined;
+  }
+
+  const sentences = trimmed.split(/(?<=[.!?。！？…])\s+/u);
+  const last = sentences.at(-1)?.trim();
+
+  return last === undefined || last === '' ? undefined : last;
+}
+
+/** Похожи ли две реплики настолько, чтобы считаться одной и той же. */
+function isSameUtterance(left: string, right: string): boolean {
+  return (
+    utteranceWords(left).length >= REPEAT_MIN_WORDS &&
+    utteranceWords(right).length >= REPEAT_MIN_WORDS &&
+    wordSimilarity(left, right) >= REPEAT_SIMILARITY_THRESHOLD
+  );
+}
+
+/**
+ * Повторяет ли реплика одну из предыдущих — целиком или своим финальным вопросом.
  *
  * @param candidate реплика, которую тьютор собирается сказать.
  * @param previous предыдущие реплики тьютора, самые свежие — последними.
  * @returns `true` — ученик это уже слышал.
  */
 export function isRepeatedUtterance(candidate: string, previous: readonly string[]): boolean {
-  if (utteranceWords(candidate).length < REPEAT_MIN_WORDS) {
+  if (previous.some((earlier) => isSameUtterance(candidate, earlier))) {
+    return true;
+  }
+
+  const question = closingQuestion(candidate);
+
+  if (question === undefined) {
     return false;
   }
 
-  return previous.some(
-    (earlier) =>
-      utteranceWords(earlier).length >= REPEAT_MIN_WORDS &&
-      wordSimilarity(candidate, earlier) >= REPEAT_SIMILARITY_THRESHOLD,
-  );
+  return previous.some((earlier) => {
+    const earlierQuestion = closingQuestion(earlier);
+
+    return earlierQuestion !== undefined && isSameUtterance(question, earlierQuestion);
+  });
 }
