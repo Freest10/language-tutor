@@ -107,7 +107,7 @@
     "save": "Save profile",
     "saving": "Saving the profile…",
     "saved": "Profile saved",
-    "unsaved": "There are unsaved changes",
+    "unsaved": "You have unsaved changes",
     "invalid": "Some fields are filled in incorrectly — check the messages next to them.",
     "saveFailed": "Could not save the profile."
   }

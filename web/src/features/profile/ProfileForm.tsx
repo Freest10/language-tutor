@@ -469,11 +469,16 @@ export function ProfileForm({
         </div>
       </section>
 
-      <div>
+      {/* Панель сохранения липкая: селект уровня стоит вверху длинной формы, и
+          кнопка внизу оказывалась за краем экрана — правку было легко потерять,
+          просто уйдя со страницы. */}
+      <div className="lt-form-bar">
         <button type="submit" className="lt-button" disabled={isSaving || !isDirty}>
           {t('form.save')}
         </button>
-        <p role="status">{statusText}</p>
+        <p role="status" className="lt-form-bar__status">
+          {isDirty && !isSaving ? t('form.unsaved') : statusText}
+        </p>
 
         {submitFailed && hasErrors && (
           <div className="lt-banner lt-banner--error" role="alert">

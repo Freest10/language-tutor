@@ -949,3 +949,28 @@ a {
     gap: var(--lt-space-sm);
   }
 }
+
+/* Панель сохранения формы: прилипает к нижнему краю, пока форма на экране.
+ *
+ * Без этого кнопка сохранения уезжала за край длинной формы: правку уровня в
+ * начале страницы было легко потерять, уйдя со страницы и не долистав вниз. */
+
+.lt-form-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lt-space-md);
+  margin-top: var(--lt-space-md);
+  padding: var(--lt-space-md) 0;
+  border-top: 1px solid var(--lt-color-border);
+  background-color: var(--lt-color-bg);
+}
+
+.lt-form-bar__status {
+  margin: 0;
+  color: var(--lt-color-muted);
+  font-size: 0.875rem;
+}
