@@ -1227,6 +1227,139 @@ describe('урок не топчется на месте', () => {
     // Во втором заходе модели прямо сказано, что именно пошло не так.
     expect(promptOf(fetchMock, 1)).toContain('Your draft answer repeated');
     expect(promptOf(fetchMock, 0)).not.toContain('Your draft answer repeated');
+    // Повтор на первой реплике ученика — случайность, а не исчерпанная тема: шаг живёт.
+    expect(promptOf(fetchMock, 1)).not.toContain('This is the last exchange');
+    expect(turn.currentStep?.id).toBe(`${lesson.id}-step-0`);
+  });
+
+  it('закрывает шаг вместо повтора вопроса, когда тема исчерпана', async () => {
+    const lesson = seedLesson({
+      plan: [
+        planStep('lesson-1', 0, { estimatedMinutes: 10 }),
+        planStep('lesson-1', 1, { type: 'speaking', title: 'Диалог у кассы' }),
+      ],
+    });
+
+    stubLlm(opening());
+    await startLesson(lesson.id);
+
+    stubLlm(turnReply({ message: 'Du kaufst Brot. Was kaufst du noch gern?' }));
+    await sendTurn(lesson.id, { text: 'Brot.' });
+
+    stubLlm(turnReply({ message: 'Du kaufst Milch. Wo kaufst du meistens ein?' }));
+    await sendTurn(lesson.id, { text: 'Milch.' });
+
+    // Третья реплика ученика, и тьютор снова спрашивает «а что ещё?» — теми же
+    // словами, что и в первый раз, только за другим откликом. Спросить по теме
+    // больше нечего: повторный заход закрывает шаг и открывает следующий.
+    const fetchMock = stubLlm(
+      turnReply({ message: 'Du kaufst im Supermarkt. Was kaufst du noch gern?' }),
+      turnReply({
+        message: 'Alles klar. Jetzt üben wir den Dialog an der Kasse. Was sagst du zuerst?',
+      }),
+    );
+
+    const turn = await sendTurn(lesson.id, { text: 'Im Supermarkt. Mehr fällt mir nicht ein.' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(promptOf(fetchMock, 1)).toContain(
+      'repeated a question the learner has already answered',
+    );
+    expect(promptOf(fetchMock, 1)).toContain('The step that starts now: #2 "Диалог у кассы"');
+    expect(turn.tutorMessage.content).toContain('Dialog an der Kasse');
+    expect(turn.currentStep?.id).toBe(`${lesson.id}-step-1`);
+    expect(turn.lesson.plan[0]?.status).toBe('completed');
+  });
+
+  it('закрывает шаг сам, когда реплики ученика исчерпали его бюджет', async () => {
+    // Шаг на пять минут: три реплики ученика (`lib/stepBudget.ts`).
+    const lesson = seedLesson();
+
+    stubLlm(opening());
+    await startLesson(lesson.id);
+
+    let fetchMock = stubLlm(turnReply({ message: 'Und was kaufst du noch?' }));
+    await sendTurn(lesson.id, { text: 'Brot.' });
+
+    expect(promptOf(fetchMock)).toContain('Learner replies on this step: 1 of at most 3.');
+
+    fetchMock = stubLlm(turnReply({ message: 'Und wo kaufst du ein?' }));
+    await sendTurn(lesson.id, { text: 'Milch.' });
+
+    // Предпоследняя реплика: модели пора подводить шаг к концу.
+    expect(promptOf(fetchMock)).toContain('Only one exchange is left on this step');
+
+    // Модель флага `stepComplete` не ставит и даже просит задание — сервер
+    // закрывает шаг сам, а задание закрытому шагу не сочиняет.
+    fetchMock = stubLlm(
+      turnReply({
+        message: 'Gut. Jetzt üben wir den Dialog an der Kasse. Was sagst du zuerst?',
+        needsExercise: true,
+      }),
+    );
+
+    const turn = await sendTurn(lesson.id, { text: 'Im Supermarkt.' });
+    const prompt = promptOf(fetchMock);
+
+    expect(prompt).toContain('This is the last exchange of the current step');
+    expect(prompt).toContain('The step has used up the time the plan gives it.');
+    expect(prompt).toContain('The step that starts now: #2 "Диалог у кассы"');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(turn.exercises).toEqual([]);
+    expect(turn.currentStep?.id).toBe(`${lesson.id}-step-1`);
+    expect(turn.currentStep?.status).toBe('in_progress');
+    expect(turn.lesson.plan[0]?.status).toBe('completed');
+  });
+
+  it('не закрывает шаг по бюджету, пока на нём висит невыполненное задание', async () => {
+    const lesson = seedLesson();
+
+    stubLlm(opening());
+    await startLesson(lesson.id);
+
+    stubLlm(
+      turnReply({ message: 'Und was kaufst du noch?', needsExercise: true }),
+      exerciseBatch(),
+    );
+    await sendTurn(lesson.id, { text: 'Brot.' });
+
+    stubLlm(turnReply({ message: 'Und wo kaufst du ein?' }));
+    await sendTurn(lesson.id, { text: 'Milch.' });
+
+    const fetchMock = stubLlm(turnReply({ message: 'Mach bitte zuerst die Aufgabe.' }));
+
+    // Задание закрытого шага ученику было бы некуда сдавать: шаг остаётся, а
+    // модели сказано подвести ученика к заданию, а не спрашивать дальше.
+    const turn = await sendTurn(lesson.id, { text: 'Im Supermarkt.' });
+
+    expect(promptOf(fetchMock)).toContain('still has an unfinished');
+    expect(promptOf(fetchMock)).not.toContain('This is the last exchange');
+    expect(turn.currentStep?.id).toBe(`${lesson.id}-step-0`);
+    expect(turn.lesson.plan[0]?.status).toBe('in_progress');
+  });
+
+  it('закрывает по бюджету последний шаг плана и оставляет урок без текущего шага', async () => {
+    const lesson = seedLesson({
+      plan: [planStep('lesson-1', 0, { type: 'wrapup', title: 'Итоги' })],
+    });
+
+    stubLlm(opening());
+    await startLesson(lesson.id);
+
+    stubLlm(turnReply({ message: 'Und was kaufst du noch?' }));
+    await sendTurn(lesson.id, { text: 'Brot.' });
+
+    stubLlm(turnReply({ message: 'Und wo kaufst du ein?' }));
+    await sendTurn(lesson.id, { text: 'Milch.' });
+
+    const fetchMock = stubLlm(turnReply({ message: 'Danke, das war es für heute.' }));
+
+    const turn = await sendTurn(lesson.id, { text: 'Im Supermarkt.' });
+
+    // Плана дальше нет: модели велено закрыть разговор, а урок ждёт `POST /complete`.
+    expect(promptOf(fetchMock)).toContain('this was the last step of the plan');
+    expect(turn.currentStep).toBeNull();
+    expect(turn.lesson.plan[0]?.status).toBe('completed');
   });
 
   it('не переспрашивает, когда тьютор продолжает разговор', async () => {

@@ -16,7 +16,8 @@
  *
  * У каждой реплики видно, как она получена: голосом или набором текста.
  * Реплику тьютора можно переслушать кнопкой — автоозвучка могла быть выключена
- * или прервана, а без повтора смысл голосового урока теряется.
+ * или прервана, а без повтора смысл голосового урока теряется. У реплики, в
+ * которой голосу нечего произнести (она целиком на языке объяснений), кнопки нет.
  *
  * Реплика ученика, на которую сервер не ответил, из ленты не исчезает:
  * она остаётся с пометкой и кнопкой повтора, иначе набранный текст пропал бы.
@@ -43,6 +44,8 @@ export interface ChatTranscriptProps {
   hasOlderMessages?: boolean;
   /** Озвучивание доступно: иначе кнопка «переслушать» не показывается. */
   canSpeak?: boolean;
+  /** Есть ли в реплике что произнести; не задан — есть у любой. */
+  canSpeakMessage?: (message: LessonMessage) => boolean;
   /** Тьютор сейчас говорит. */
   isSpeaking?: boolean;
   /** Озвучить реплику тьютора. */
@@ -157,6 +160,7 @@ export function ChatTranscript({
   isThinking = false,
   hasOlderMessages = false,
   canSpeak = false,
+  canSpeakMessage,
   isSpeaking = false,
   onSpeak,
   onStopSpeaking,
@@ -193,7 +197,7 @@ export function ChatTranscript({
               <TranscriptItem
                 key={message.id}
                 message={message}
-                canSpeak={canSpeak}
+                canSpeak={canSpeak && (canSpeakMessage?.(message) ?? true)}
                 isSpeaking={isSpeaking && message.id === lastId}
                 onSpeak={onSpeak}
                 onStopSpeaking={onStopSpeaking}

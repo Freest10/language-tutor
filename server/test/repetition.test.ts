@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  closingQuestion,
   isRepeatedUtterance,
   REPEAT_MIN_WORDS,
   utteranceWords,
@@ -42,6 +43,22 @@ describe('wordSimilarity', () => {
   });
 });
 
+describe('closingQuestion', () => {
+  it('отделяет финальный вопрос от отклика перед ним', () => {
+    expect(closingQuestion('Du kaufst Brot. Gut! Was kaufst du noch gern?')).toBe(
+      'Was kaufst du noch gern?',
+    );
+    expect(closingQuestion('Ты любишь кафе. А что ещё вы делаете вместе?')).toBe(
+      'А что ещё вы делаете вместе?',
+    );
+  });
+
+  it('не находит вопроса в реплике, которая заканчивается не вопросом', () => {
+    expect(closingQuestion('Was kaufst du? Brot ist gut.')).toBeUndefined();
+    expect(closingQuestion('   ')).toBeUndefined();
+  });
+});
+
 describe('isRepeatedUtterance', () => {
   it('ловит тот же вопрос, сказанный другими словами', () => {
     // Ученик уже ответил на это: повторить вопрос — значит топтаться на месте.
@@ -58,6 +75,31 @@ describe('isRepeatedUtterance', () => {
         'Gut! Was trinkst du zum Frühstück?',
       ]),
     ).toBe(false);
+  });
+
+  it('ловит повтор финального вопроса за другим откликом', () => {
+    // Тьютор по правилам сначала откликается на сказанное, потом спрашивает:
+    // отклики разные, и по множеству слов реплики почти не похожи (0.63), а
+    // ученик слышит «а что ещё?» второй раз.
+    expect(
+      isRepeatedUtterance('Du kaufst im Supermarkt. Was kaufst du noch gern?', [
+        'Du kaufst Brot. Was kaufst du noch gern?',
+      ]),
+    ).toBe(true);
+  });
+
+  it('не считает повтором новый вопрос после похожего отклика', () => {
+    expect(
+      isRepeatedUtterance('Du kaufst Brot. Wo kaufst du meistens ein?', [
+        'Du kaufst Brot. Was kaufst du noch gern?',
+      ]),
+    ).toBe(false);
+  });
+
+  it('не считает повтором короткий финальный вопрос', () => {
+    expect(isRepeatedUtterance('Du kaufst Brot und Milch. Und noch?', ['Gut. Und noch?'])).toBe(
+      false,
+    );
   });
 
   it('не считает повтором короткие связки', () => {

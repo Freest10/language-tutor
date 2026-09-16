@@ -23,7 +23,13 @@
  *   контракт, этот сервис молча отбрасывает (400 посреди урока хуже), поэтому
  *   расхождение «сколько передали / сколько сохранилось» пишется в лог;
  * - **уровень пересчитывается на завершении урока** (`maybeAdjustLevel()`, A13):
- *   урок уже помечен завершённым, поэтому попадает в окно статистики.
+ *   урок уже помечен завершённым, поэтому попадает в окно статистики;
+ * - **шаг закрывает сервер, а не только модель.** Флаг `stepComplete` локальная
+ *   модель почти не ставит, и тьютор спрашивал «а что ещё?» у ученика, которому
+ *   нечего добавить. Поэтому у шага есть бюджет реплик ученика по его длительности
+ *   (`lib/stepBudget.ts`); когда бюджет исчерпан или тьютор повторил уже заданный
+ *   вопрос, модели прямо велят попрощаться с темой и открыть следующий шаг, а шаг
+ *   закрывается независимо от её флага.
  *
  * Языки разведены как и везде (A12): реплики и примеры — на `learningLanguage`
  * урока, разборы, переводы и итог — на его `explanationLanguage`. Оба поля урок
@@ -74,6 +80,7 @@ import {
   tutorOpeningSchema,
   tutorTurnSchema,
   type LessonSummaryStats,
+  type StepClosure,
   type TutorMaterialExcerpt,
   type TutorPromptContext,
   type TutorTranscript,
@@ -81,9 +88,11 @@ import {
   type TutorVocabularyReply,
 } from '../prompts/tutorTurn.js';
 import { isRepeatedUtterance } from '../lib/repetition.js';
+import { isBudgetSpent, stepTurnBudget, type StepPacing } from '../lib/stepBudget.js';
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import { isProviderError, type ProviderLogger } from '../providers/types.js';
 import {
+  countStepMessages,
   findAttemptedExerciseIds,
   findLessonExercise,
   findLessonHistory,
@@ -192,6 +201,25 @@ const REPEAT_LOOKBACK = 4;
  * же репликой, и план урока проскакивал бы целиком за пару ходов.
  */
 const MIN_LEARNER_TURNS_BEFORE_CLOSE = 2;
+
+/**
+ * С какой реплики ученика повтор вопроса тьютором закрывает шаг, а не
+ * переспрашивается.
+ *
+ * Повтор на первой-второй реплике бывает случайностью выборки, и тема ещё
+ * жива — модель переспрашивается с указанием не повторяться. Повтор после
+ * третьей реплики значит, что спросить по теме больше нечего: ученик уже
+ * отвечал на этот вопрос, и ещё один заход по кругу хуже перехода дальше.
+ */
+const REPEAT_CLOSE_MIN_LEARNER_TURNS = 3;
+
+/** Ход шага по репликам ученика; текущая реплика уже в базе и входит в счёт. */
+function stepPacing(lessonId: Id, step: LessonPlanStep): StepPacing {
+  return {
+    learnerTurns: countStepMessages(lessonId, step.id, 'user'),
+    budget: stepTurnBudget(step.estimatedMinutes),
+  };
+}
 
 /** Последние реплики тьютора — с ними сравнивается новая. */
 function recentTutorLines(transcript: TutorTranscript): string[] {
@@ -583,9 +611,25 @@ export async function submitLessonTurn(
   const context = promptContext(lesson, profile, step?.id ?? null);
   const pending = hasPendingExercise(lesson.id, step);
   const transcript = transcriptOf(lesson.id, learnerMessage.id);
+  const pacing = step === undefined ? undefined : stepPacing(lesson.id, step);
+
+  /**
+   * Решение сервера закрыть шаг этим ходом; `undefined` — шага нет или на нём
+   * висит задание: закрытый шаг оставил бы ученика с заданием, которое некуда
+   * сдавать.
+   */
+  const closeFor = (reason: StepClosure['reason']): StepClosure | undefined =>
+    step === undefined || pending ? undefined : { reason, nextStep: nextPendingStep(lesson, step) };
+
+  // Бюджет реплик исчерпан: эта реплика ученика на шаге последняя, что бы модель
+  // ни ответила в `stepComplete`.
+  let closure = pacing !== undefined && isBudgetSpent(pacing) ? closeFor('budget') : undefined;
 
   /** Один заход к модели за ответом тьютора. */
-  const askTutor = async (avoidRepeat: boolean): Promise<TutorTurnReply> =>
+  const askTutor = async (retry: {
+    avoidRepeat?: boolean;
+    closeStep?: StepClosure | undefined;
+  }): Promise<TutorTurnReply> =>
     (
       await requestStructuredJson({
         schema: tutorTurnSchema,
@@ -596,7 +640,8 @@ export async function submitLessonTurn(
           spoken: input.source === 'voice',
           excerpts: step === undefined ? [] : stepExcerpts(lesson, step),
           hasPendingExercise: pending,
-          avoidRepeat,
+          pacing,
+          ...retry,
         }),
         schemaName: 'tutor_turn',
         temperature: TUTOR_TEMPERATURE,
@@ -604,21 +649,28 @@ export async function submitLessonTurn(
       })
     ).data;
 
-  let data = await askTutor(false);
+  let data = await askTutor({ closeStep: closure });
 
   // Зацикливание модель за собой не замечает, а ученику оно видно сразу: он
-  // отвечает на тот же вопрос второй раз. Один повторный заход с прямым
-  // указанием обычно разворачивает разговор; если и он повторился — отдаём как
-  // есть, потому что молчание вместо реплики хуже повтора.
-  if (isRepeatedUtterance(data.message, recentTutorLines(transcript))) {
+  // отвечает на тот же вопрос второй раз. В начале шага один повторный заход с
+  // прямым указанием обычно разворачивает разговор; после нескольких реплик
+  // повтор значит, что спросить по теме больше нечего, и повторный заход сразу
+  // закрывает шаг. Если и второй заход повторился — отдаём как есть, потому что
+  // молчание вместо реплики хуже повтора.
+  if (closure === undefined && isRepeatedUtterance(data.message, recentTutorLines(transcript))) {
+    closure =
+      pacing !== undefined && pacing.learnerTurns >= REPEAT_CLOSE_MIN_LEARNER_TURNS
+        ? closeFor('repeat')
+        : undefined;
     options.logger?.warn?.(
-      { lessonId: lesson.id, stepId: step?.id ?? null },
+      { lessonId: lesson.id, stepId: step?.id ?? null, closesStep: closure !== undefined },
       'Реплика тьютора повторяет уже сказанное: повторный заход',
     );
-    data = await askTutor(true);
+    data = await askTutor(closure === undefined ? { avoidRepeat: true } : { closeStep: closure });
   }
   const closesStep =
-    step !== undefined && data.stepComplete && canCloseStep(step, transcript, pending);
+    step !== undefined &&
+    (closure !== undefined || (data.stepComplete && canCloseStep(step, transcript, pending)));
   const exercises =
     data.needsExercise && !pending && !closesStep && step !== undefined
       ? await tryGenerateExercises(lesson, step, context, options)
@@ -651,8 +703,15 @@ export async function submitLessonTurn(
 
   if (closesStep) {
     options.logger?.debug?.(
-      { lessonId: lesson.id, stepId: step?.id ?? null, nextStepId: startedStep?.id ?? null },
-      'Шаг урока закрыт по решению тьютора',
+      {
+        lessonId: lesson.id,
+        stepId: step?.id ?? null,
+        nextStepId: startedStep?.id ?? null,
+        reason: closure?.reason ?? 'tutor',
+      },
+      closure === undefined
+        ? 'Шаг урока закрыт по решению тьютора'
+        : 'Шаг урока закрыт сервером: тема исчерпана',
     );
   }
 

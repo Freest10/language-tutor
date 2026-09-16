@@ -9,14 +9,17 @@
  * Голосовой цикл: удержание кнопки прерывает говорящего тьютора и включает
  * запись, расшифровка попадает в поле ввода, ученик правит её и отправляет —
  * вместе с `source: 'voice'` и длительностью записи. Ответ тьютора озвучивается
- * автоматически, пока включён тумблер автоозвучки.
+ * автоматически, пока включён тумблер автоозвучки — без слов на языке объяснений
+ * (`spokenText`): голос подобран под изучаемый язык и их произнести не может.
  *
  * Пока модель думает или тьютор говорит, отправка заблокирована: локальная
  * модель отвечает 5–20 секунд, и без блокировки ученик успевает наслать
  * несколько ходов подряд.
  */
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
+
+import type { LessonMessage } from '@lt/shared';
 
 import { LoadingBlock } from '../components/LoadingBlock';
 import { ChatTranscript } from '../features/lessonRoom/ChatTranscript';
@@ -30,6 +33,7 @@ import {
   useLessonSessionErrorMessage,
 } from '../features/lessonRoom/useLessonSession';
 import { useLessonGenerationReadiness } from '../features/lessons/useLessons';
+import { spokenText } from '../features/voice/spokenText';
 import { useTextToSpeech } from '../features/voice/useTextToSpeech';
 import { useT } from '../i18n/useT';
 import { lessonPlanPath, ROUTE_PATHS } from '../router';
@@ -45,7 +49,18 @@ export function LessonRoomPage() {
 
   const { lesson, currentStep, failure } = session;
   const language = lesson?.learningLanguage ?? 'en';
+  const explanationLanguage = lesson?.explanationLanguage ?? null;
   const tts = useTextToSpeech({ language, level: lesson?.level ?? null });
+
+  /** Что из реплики озвучивать; пустая строка — озвучивать нечего. */
+  const speakable = useCallback(
+    (message: LessonMessage): string =>
+      spokenText(message.content, {
+        spoken: message.language ?? language,
+        muted: explanationLanguage,
+      }),
+    [explanationLanguage, language],
+  );
 
   const spokenRef = useRef<string | null>(null);
   const restoredRef = useRef(false);
@@ -71,10 +86,12 @@ export function LessonRoomPage() {
 
     spokenRef.current = message.id;
 
-    if (autoSpeak && tts.available) {
-      void tts.speak({ text: message.content, language: message.language ?? language });
+    const text = speakable(message);
+
+    if (autoSpeak && tts.available && text !== '') {
+      void tts.speak({ text, language: message.language ?? language });
     }
-  }, [autoSpeak, language, session.isRestoring, session.lastTutorMessage, tts]);
+  }, [autoSpeak, language, session.isRestoring, session.lastTutorMessage, speakable, tts]);
 
   const isRunning = lesson?.status === 'in_progress';
   const isDraft = lesson?.status === 'draft';
@@ -196,10 +213,11 @@ export function LessonRoomPage() {
                 isThinking={session.isThinking}
                 hasOlderMessages={session.hasOlderMessages}
                 canSpeak={tts.available}
+                canSpeakMessage={(message) => speakable(message) !== ''}
                 isSpeaking={tts.isSpeaking}
                 onSpeak={(message) => {
                   void tts.speak({
-                    text: message.content,
+                    text: speakable(message),
                     language: message.language ?? language,
                   });
                 }}
