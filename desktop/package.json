@@ -9,7 +9,7 @@
     "build": "node scripts/build.mjs",
     "whisper": "node scripts/whisper.mjs",
     "start": "npm run build && electron .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "npm run build --workspace @lt/server --prefix .. && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "pack": "npm run build && electron-builder --publish never",
