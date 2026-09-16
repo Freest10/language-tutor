@@ -49,6 +49,27 @@ const WORKSPACES = [
   },
 ];
 
+/**
+ * Чем звать npm из скрипта.
+ *
+ * Напрямую нельзя: в Windows npm — это `npm.cmd`, а Node с 20-й версии
+ * отказывается запускать `.cmd` без оболочки (`spawnSync npm.cmd EINVAL` —
+ * защита от подстановки аргументов). Поэтому берём тот самый npm, которым
+ * запущен этот скрипт, и отдаём его текущему Node: одинаково на всех
+ * платформах и без оболочки.
+ */
+const npmRunner = (() => {
+  const cli = process.env.npm_execpath;
+
+  if (cli !== undefined && cli.endsWith('.js')) {
+    return { command: process.execPath, prefix: [cli] };
+  }
+
+  // Скрипт запустили не через npm (`node scripts/build.mjs`): на Unix `npm` —
+  // обычная программа и запускается как есть.
+  return { command: 'npm', prefix: [] };
+})();
+
 /** Время последнего изменения в дереве исходников. */
 function newestSourceTime(sourceDir) {
   let newest = 0;
@@ -83,12 +104,10 @@ function buildWorkspaces() {
     }
 
     console.log(`${workspace.name}: собираем…`);
-    // В Windows npm — это `npm.cmd`, и `execFile` без расширения его не найдёт.
-    execFileSync(
-      process.platform === 'win32' ? 'npm.cmd' : 'npm',
-      ['run', 'build', '-w', workspace.name],
-      { cwd: repoDir, stdio: 'inherit' },
-    );
+    execFileSync(npmRunner.command, [...npmRunner.prefix, 'run', 'build', '-w', workspace.name], {
+      cwd: repoDir,
+      stdio: 'inherit',
+    });
   }
 }
 
