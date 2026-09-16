@@ -25,6 +25,9 @@
     "format:check": "prettier --check .",
     "typecheck": "npm run build -w @lt/shared && npm run typecheck --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @lt/server",
+    "smoke": "node scripts/smoke.mjs",
+    "stack:up": "docker compose --profile ollama --profile stt --profile tts up -d",
+    "stack:down": "docker compose --profile ollama --profile stt --profile tts down",
     "clean": "npm run clean --workspaces --if-present"
   },
   "devDependencies": {

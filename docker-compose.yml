@@ -1,0 +1,116 @@
+# Локальные модели для language-tutor: LLM, распознавание и синтез речи.
+#
+# ВСЁ ЗДЕСЬ — ОПЦИОНАЛЬНО. Приложение работает и без Docker: голос по умолчанию
+# делает браузер (STT_PROVIDER=browser, TTS_PROVIDER=browser), а языковой моделью
+# может быть любой OpenAI-совместимый эндпоинт — нативная Ollama, LM Studio,
+# облачный ключ. Этот файл нужен только тому, кто хочет держать модели рядом
+# с приложением и поднимать их одной командой.
+#
+# Каждый сервис лежит в своём профиле, поэтому `docker compose up` без профиля
+# не поднимает ничего. Поднимать по одному:
+#   docker compose --profile ollama up -d   # LLM,              :11434
+#   docker compose --profile stt up -d      # распознавание,    :8000
+#   docker compose --profile tts up -d      # синтез речи,      :8880
+#   npm run stack:up                        # все три сразу
+#   npm run stack:down                      # остановить и удалить контейнеры
+#
+# Приложение ходит к контейнерам с хоста по localhost, поэтому общей сети
+# и переменных для контейнеров здесь нет: адреса задаются в `.env` приложения
+# (LLM_BASE_URL, STT_BASE_URL, TTS_BASE_URL). Матрица провайдеров и то, чем
+# платишь за каждый выбор, — в `docs/providers.md`.
+#
+# macOS (Apple Silicon): все три образа опубликованы и под linux/arm64, так что
+# эмуляции не будет. Но GPU внутри контейнера на macOS нет — ни Docker Desktop,
+# ни Colima не пробрасывают Metal в виртуальную машину, поэтому здесь всё
+# считается на CPU. Если LLM в контейнере окажется слишком медленной, поставьте
+# Ollama нативным приложением (она умеет Metal) и просто не поднимайте профиль
+# `ollama`: адрес в LLM_BASE_URL останется тем же — http://localhost:11434/v1.
+#
+# Версии образов закреплены намеренно: обновление модели или сервера не должно
+# случаться молча посреди урока. Поднять версию — поправить тег здесь.
+
+name: language-tutor
+
+services:
+  # Языковая модель: OpenAI-совместимый API на http://localhost:11434/v1
+  # После первого старта нужно скачать модель — образ приходит пустым:
+  #   docker compose exec ollama ollama pull qwen3:8b
+  # Список скачанного: `docker compose exec ollama ollama list`.
+  ollama:
+    profiles: ['ollama']
+    image: ollama/ollama:0.34.1
+    container_name: lt-ollama
+    restart: unless-stopped
+    ports:
+      - '11434:11434'
+    volumes:
+      # Скачанные модели переживают пересоздание контейнера: qwen3:8b — это ~5 ГиБ.
+      - ollama-models:/root/.ollama
+    environment:
+      # Держать модель в памяти между шагами урока: иначе каждая реплика тьютора
+      # начинается с повторной загрузки весов.
+      OLLAMA_KEEP_ALIVE: '30m'
+    healthcheck:
+      # `ollama list` ходит в тот же сервер, что и приложение: healthcheck ловит
+      # не «процесс жив», а «API отвечает».
+      test: ['CMD', 'ollama', 'list']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # Распознавание речи (faster-whisper за OpenAI-совместимым API):
+  # POST http://localhost:8000/v1/audio/transcriptions
+  # Модель скачивается при первом запросе и остаётся в томе; имя модели — это имя
+  # репозитория на Hugging Face, например Systran/faster-whisper-small.
+  # Нужен только при STT_PROVIDER=openai.
+  stt:
+    profiles: ['stt']
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    container_name: lt-stt
+    restart: unless-stopped
+    ports:
+      - '8000:8000'
+    volumes:
+      # Кэш Hugging Face: без него модель качается заново после каждого `down`.
+      - stt-models:/home/ubuntu/.cache/huggingface/hub
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', 'http://127.0.0.1:8000/health']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # Синтез речи (Kokoro-82M за OpenAI-совместимым API):
+  # POST http://localhost:8880/v1/audio/speech
+  # Модель и голоса уже лежат в образе, поэтому тома у сервиса нет.
+  # Голоса Kokoro покрывают английский, испанский и французский, но не немецкий
+  # и не русский — для них берите браузерный синтез (TTS_PROVIDER=browser).
+  # Список голосов: GET http://localhost:8880/v1/audio/voices
+  # Нужен только при TTS_PROVIDER=openai.
+  tts:
+    profiles: ['tts']
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.9.0
+    container_name: lt-tts
+    restart: unless-stopped
+    ports:
+      - '8880:8880'
+    healthcheck:
+      # В образе нет curl, зато есть python из базового образа.
+      test:
+        [
+          'CMD',
+          'python3',
+          '-c',
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8880/health').read()",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  # Кэш моделей: тома переживают `docker compose down`, удалять их — только
+  # `docker compose down -v` (после этого модели скачиваются заново).
+  ollama-models:
+  stt-models:
