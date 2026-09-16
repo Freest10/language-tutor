@@ -14,14 +14,15 @@
  *   Решение принимает чистая функция `decideLevelChange()`: её можно прогнать на
  *   синтетических данных, не поднимая базу;
  * - изменение уровня всегда пишется в историю с `source: 'progress'`, обоснованием
- *   и метриками, по которым оно принято, одной транзакцией с профилем.
+ *   и метриками, по которым оно принято, одной транзакцией с профилем. Саму запись
+ *   собирает общий `services/levelHistory.ts`: правило «первая запись истории —
+ *   первичная установка» одинаково для всех трёх источников изменения уровня.
  *
  * Тексты обоснований — на русском, как и у ручной смены уровня в `profileService`.
  */
 import { randomUUID } from 'node:crypto';
 
 import {
-  CEFR_LEVELS,
   ERROR_CATEGORIES,
   ERROR_SEVERITIES,
   LEVEL_CHANGE_POLICY,
@@ -47,6 +48,8 @@ import {
 } from '@lt/shared';
 
 import { isOnboardingCompleted, learnerProfileToRow, nowIso, toIsoDate } from '../db/mappers.js';
+import { shiftLevel } from '../lib/cefr.js';
+import { accuracyRatio, formatPercent } from '../lib/metrics.js';
 import {
   findLatestLevelHistoryEntry,
   findProfileRow,
@@ -72,6 +75,7 @@ import {
   type ExerciseTotals,
 } from '../repositories/progressRepository.js';
 
+import { buildLevelHistoryEntry } from './levelHistory.js';
 import { getProfile } from './profileService.js';
 
 // ---------------------------------------------------------------------------
@@ -122,24 +126,6 @@ function optionalText(value: string | null | undefined, limit: number): string |
   const text = clampText(value, limit);
 
   return text === '' ? null : text;
-}
-
-/** Доля верных ответов, 0..1; без попыток — 0, а не деление на ноль. */
-function ratio(correct: number, total: number): number {
-  return total === 0 ? 0 : Math.min(1, Math.max(0, correct / total));
-}
-
-/** Доля в процентах для человекочитаемых обоснований. */
-function percent(value: number): string {
-  return `${String(Math.round(value * 100))}%`;
-}
-
-/** Сдвигает уровень по шкале CEFR, не выходя за её границы. */
-function shiftLevel(level: CefrLevel, steps: number): CefrLevel {
-  const index = CEFR_LEVELS.indexOf(level);
-  const next = Math.min(CEFR_LEVELS.length - 1, Math.max(0, index + steps));
-
-  return CEFR_LEVELS[next] ?? level;
 }
 
 // ---------------------------------------------------------------------------
@@ -434,7 +420,7 @@ export interface ExerciseOutcomeResult {
 
 /** Агрегат вместе с долей верных ответов. */
 function toAccuracy(totals: ExerciseTotals): ExerciseAccuracy {
-  return { ...totals, accuracy: ratio(totals.correct, totals.total) };
+  return { ...totals, accuracy: accuracyRatio(totals.correct, totals.total) };
 }
 
 /**
@@ -623,7 +609,7 @@ export function decideLevelChange(input: LevelChangeInput): LevelDecision {
   const eligibility: LevelEligibility = {
     canChange: true,
     lessonsUntilEligible: 0,
-    reason: `Доля верных ответов за последние ${String(input.lessonsConsidered)} уроков — ${percent(accuracy)}; порог повышения ${percent(policy.promoteAccuracy)}, понижения ${percent(policy.demoteAccuracy)}`,
+    reason: `Доля верных ответов за последние ${String(input.lessonsConsidered)} уроков — ${formatPercent(accuracy)}; порог повышения ${formatPercent(policy.promoteAccuracy)}, понижения ${formatPercent(policy.demoteAccuracy)}`,
   };
   const window = `за последние ${String(input.lessonsConsidered)} уроков (${String(input.exercisesEvaluated)} заданий)`;
 
@@ -632,7 +618,7 @@ export function decideLevelChange(input: LevelChangeInput): LevelDecision {
 
     if (toLevel === input.currentLevel) {
       return keep(
-        `Доля верных ответов ${percent(accuracy)} ${window}, но ${input.currentLevel} — верх шкалы CEFR`,
+        `Доля верных ответов ${formatPercent(accuracy)} ${window}, но ${input.currentLevel} — верх шкалы CEFR`,
         eligibility,
       );
     }
@@ -642,7 +628,7 @@ export function decideLevelChange(input: LevelChangeInput): LevelDecision {
       direction: 'up',
       fromLevel: input.currentLevel,
       toLevel,
-      reason: `Доля верных ответов ${percent(accuracy)} ${window} не ниже порога ${percent(policy.promoteAccuracy)}: уровень повышен ${input.currentLevel} → ${toLevel}`,
+      reason: `Доля верных ответов ${formatPercent(accuracy)} ${window} не ниже порога ${formatPercent(policy.promoteAccuracy)}: уровень повышен ${input.currentLevel} → ${toLevel}`,
       metrics,
       eligibility,
     };
@@ -653,7 +639,7 @@ export function decideLevelChange(input: LevelChangeInput): LevelDecision {
 
     if (toLevel === input.currentLevel) {
       return keep(
-        `Доля верных ответов ${percent(accuracy)} ${window}, но ${input.currentLevel} — низ шкалы CEFR`,
+        `Доля верных ответов ${formatPercent(accuracy)} ${window}, но ${input.currentLevel} — низ шкалы CEFR`,
         eligibility,
       );
     }
@@ -663,14 +649,14 @@ export function decideLevelChange(input: LevelChangeInput): LevelDecision {
       direction: 'down',
       fromLevel: input.currentLevel,
       toLevel,
-      reason: `Доля верных ответов ${percent(accuracy)} ${window} ниже порога ${percent(policy.demoteAccuracy)}: уровень понижен ${input.currentLevel} → ${toLevel}`,
+      reason: `Доля верных ответов ${formatPercent(accuracy)} ${window} ниже порога ${formatPercent(policy.demoteAccuracy)}: уровень понижен ${input.currentLevel} → ${toLevel}`,
       metrics,
       eligibility,
     };
   }
 
   return keep(
-    `Доля верных ответов ${percent(accuracy)} ${window} между порогами ${percent(policy.demoteAccuracy)} и ${percent(policy.promoteAccuracy)}: уровень ${input.currentLevel} сохранён`,
+    `Доля верных ответов ${formatPercent(accuracy)} ${window} между порогами ${formatPercent(policy.demoteAccuracy)} и ${formatPercent(policy.promoteAccuracy)}: уровень ${input.currentLevel} сохранён`,
     eligibility,
   );
 }
@@ -692,7 +678,7 @@ function collectLevelWindow(): LevelWindow {
   return {
     lessonsConsidered: lessons.length,
     exercisesEvaluated: totals.total,
-    accuracy: ratio(totals.correct, totals.total),
+    accuracy: accuracyRatio(totals.correct, totals.total),
     // Уроки отсортированы от свежего к раннему, поэтому границы окна берутся с краёв.
     from: lessons.at(-1)?.completedAt ?? null,
     to: lessons[0]?.completedAt ?? null,
@@ -735,18 +721,17 @@ export function maybeAdjustLevel(): LevelAdjustment {
   }
 
   const changedAt = nowIso();
-  const entry: LevelHistoryEntry = {
-    id: randomUUID(),
+  // Запись собирается общим сборщиком: первая запись истории обязана быть
+  // первичной установкой, даже если её повод — автокоррекция (см. levelHistory.ts).
+  const entry: LevelHistoryEntry = buildLevelHistoryEntry({
     fromLevel: decision.fromLevel,
     toLevel: decision.toLevel,
-    direction: decision.direction,
     source: 'progress',
     confidence: PROGRESS_LEVEL_CONFIDENCE,
     reason: decision.reason,
     metrics: decision.metrics,
     changedAt,
-    createdAt: changedAt,
-  };
+  });
   const next: LearnerProfile = {
     ...profile,
     level: decision.toLevel,
@@ -855,7 +840,7 @@ export function getProgressSummary(): ProgressSummary {
     practiceMinutes: sumPracticeMinutes(),
     exercisesTotal: totals.total,
     exercisesCorrect: totals.correct,
-    accuracyOverall: ratio(totals.correct, totals.total),
+    accuracyOverall: accuracyRatio(totals.correct, totals.total),
     accuracyRecent: input.accuracy,
     streakDays: streaks.current,
     longestStreakDays: streaks.longest,

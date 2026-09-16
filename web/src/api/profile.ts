@@ -17,25 +17,18 @@ import {
   type UpdateProfileRequest,
 } from '@lt/shared';
 
-import { ApiError, api, type RequestOptions } from './client';
+import { api, clientValidationError } from './client';
 
 /** Путь профиля внутри API; префикс `/api` подставляет клиент. */
 export const PROFILE_PATH = '/profile';
 
-/** Параметры обращения к профилю: схему и таймаут задаёт сам модуль. */
-export type ProfileRequestOptions = Pick<RequestOptions, 'signal'>;
-
 /** Профиль ученика целиком. Профиль существует всегда: 404 у маршрута не бывает. */
-export function fetchProfile({ signal }: ProfileRequestOptions = {}): Promise<LearnerProfile> {
+export function fetchProfile(signal?: AbortSignal): Promise<LearnerProfile> {
   return api.get(PROFILE_PATH, { schema: getProfileResponseSchema, signal });
 }
 
 /**
  * Проверяет тело `PUT /api/profile` схемой `@lt/shared` до отправки.
- *
- * Отказ оформлен как `ApiError` с кодом `validation_error`: интерфейсу
- * не нужно различать, кто отверг данные — клиент или сервер, а `status: 0`
- * говорит, что запроса не было.
  *
  * @throws ApiError если изменения не соответствуют контракту.
  */
@@ -43,12 +36,10 @@ export function parseProfileUpdate(changes: UpdateProfileRequest): UpdateProfile
   const result = updateProfileRequestSchema.safeParse(changes);
 
   if (!result.success) {
-    throw new ApiError({
-      code: 'validation_error',
-      message: 'Изменения профиля не прошли проверку схемы на клиенте',
-      status: 0,
-      details: { reason: 'client_validation', issues: result.error.issues },
-    });
+    throw clientValidationError(
+      'Изменения профиля не прошли проверку схемы на клиенте',
+      result.error.issues,
+    );
   }
 
   return result.data;
@@ -57,7 +48,7 @@ export function parseProfileUpdate(changes: UpdateProfileRequest): UpdateProfile
 /** Сохраняет изменённые поля профиля и отдаёт профиль целиком. */
 export async function updateProfile(
   changes: UpdateProfileRequest,
-  { signal }: ProfileRequestOptions = {},
+  signal?: AbortSignal,
 ): Promise<LearnerProfile> {
   return api.put(PROFILE_PATH, parseProfileUpdate(changes), {
     schema: updateProfileResponseSchema,

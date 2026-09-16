@@ -11,6 +11,7 @@
  */
 import { PLACEMENT_DEFAULT_MAX_TURNS } from '@lt/shared';
 
+import { LoadingBlock } from '../components/LoadingBlock';
 import { useCapabilities } from '../context/CapabilitiesProvider';
 import { PlacementChat } from '../features/placement/PlacementChat';
 import { PlacementResult } from '../features/placement/PlacementResult';
@@ -107,12 +108,7 @@ export function PlacementPage() {
       )}
 
       {placement.stage === 'chat' && placement.isRestoring && (
-        <div className="lt-card" aria-busy="true">
-          <p className="lt-placeholder" role="status">
-            {t('chat.restoring')}
-          </p>
-          <p className="lt-skeleton" aria-hidden="true" />
-        </div>
+        <LoadingBlock label={t('chat.restoring')} lines={1} card />
       )}
 
       {placement.stage === 'chat' && !placement.isRestoring && placement.session && (
@@ -123,8 +119,8 @@ export function PlacementPage() {
           maxTurns={placement.maxTurns}
           isAnswering={placement.isAnswering}
           isFinishing={placement.isFinishing}
-          error={failureMessage}
-          onRetry={failure ? placement.retry : null}
+          error={failure?.error ?? null}
+          onRetry={failure ? placement.retry : undefined}
           onSubmit={(text, options) => {
             placement.answer(text, options);
           }}
@@ -150,7 +146,7 @@ export function PlacementPage() {
           result={placement.result}
           appliedToProfile={placement.appliedToProfile}
           isSaving={placement.isFinishing}
-          saveError={failure?.action === 'finish' ? failureMessage : null}
+          saveError={failure?.action === 'finish' ? failure.error : null}
           onSaveToProfile={placement.finish}
           onRestart={placement.restart}
         />

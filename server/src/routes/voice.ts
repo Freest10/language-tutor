@@ -26,12 +26,27 @@ import {
 } from '@lt/shared';
 
 import { badRequest, payloadTooLarge, unsupportedMediaType } from '../lib/httpErrors.js';
+import { isFileTooLarge, isMultipartLimit } from '../lib/multipart.js';
 import { parseBody, parseWith } from '../lib/validate.js';
 import { resolveSttProvider, resolveTtsProvider } from '../providers/factory.js';
 import { providerErrorToAppError } from '../providers/types.js';
 
 /** Предел длины расшифровки в ответе (`sttResponseSchema`). */
 const MAX_TRANSCRIPT_LENGTH = 8000;
+
+/**
+ * Пределы разбора multipart-запроса распознавания: одна запись и несколько
+ * коротких текстовых полей (`language`, `prompt`). Предел размера задан здесь,
+ * а не общим `MAX_UPLOAD_MB`: запись не должна занимать память сверх того, что
+ * разрешает контракт голосового эндпоинта.
+ */
+const AUDIO_LIMITS = {
+  parts: 8,
+  files: 1,
+  fields: 6,
+  fieldSize: 4096,
+  fileSize: MAX_AUDIO_UPLOAD_BYTES,
+};
 
 /** Расширение файла по MIME-типу: по нему распознаватель определяет контейнер. */
 const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
@@ -66,6 +81,14 @@ function safeFilename(original: string | undefined, mimeType: string): string {
     : fallback;
 }
 
+/** Отказ «запись слишком большая»: один текст на оба способа его обнаружить. */
+function tooLargeAudio(cause?: unknown): ReturnType<typeof payloadTooLarge> {
+  return payloadTooLarge('Аудиозапись превышает допустимый размер', {
+    details: { reason: 'audio_too_large', maxBytes: MAX_AUDIO_UPLOAD_BYTES },
+    ...(cause === undefined ? {} : { cause }),
+  });
+}
+
 /** Читает multipart-запрос: аудиозапись и текстовые поля. */
 async function readAudioUpload(
   request: FastifyRequest,
@@ -79,41 +102,50 @@ async function readAudioUpload(
   const fields: Record<string, string> = {};
   let audio: AudioUpload | undefined;
 
-  for await (const part of request.parts()) {
-    if (part.type !== 'file') {
-      fields[part.fieldname] = String(part.value);
+  try {
+    for await (const part of request.parts({ limits: AUDIO_LIMITS })) {
+      if (part.type !== 'file') {
+        fields[part.fieldname] = String(part.value);
 
-      continue;
+        continue;
+      }
+
+      // Поток каждой части нужно вычитать, иначе разбор запроса не завершится.
+      if (part.fieldname !== STT_AUDIO_FIELD_NAME || audio !== undefined) {
+        part.file.resume();
+
+        continue;
+      }
+
+      const bytes = await part.toBuffer();
+
+      if (part.file.truncated || bytes.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
+        throw tooLargeAudio();
+      }
+
+      const mimeType = baseMimeType(part.mimetype);
+
+      if (!(STT_SUPPORTED_MIME_TYPES as readonly string[]).includes(mimeType)) {
+        throw unsupportedMediaType(`Формат аудио не поддерживается: ${mimeType || 'не указан'}`, {
+          details: {
+            reason: 'audio_mime_not_supported',
+            mimeType,
+            supported: STT_SUPPORTED_MIME_TYPES,
+          },
+        });
+      }
+
+      audio = { bytes, filename: safeFilename(part.filename, mimeType), mimeType };
+    }
+  } catch (error) {
+    // Предел `fileSize` разбор запроса прерывает исключением, а не флагом
+    // `truncated`, а пределы числа частей рвут поток запроса: ответ в обоих
+    // случаях один и тот же — 413, а не 500.
+    if (isFileTooLarge(error) || isMultipartLimit(error)) {
+      throw tooLargeAudio(error);
     }
 
-    // Поток каждой части нужно вычитать, иначе разбор запроса не завершится.
-    if (part.fieldname !== STT_AUDIO_FIELD_NAME || audio !== undefined) {
-      part.file.resume();
-
-      continue;
-    }
-
-    const bytes = await part.toBuffer();
-
-    if (part.file.truncated || bytes.byteLength > MAX_AUDIO_UPLOAD_BYTES) {
-      throw payloadTooLarge('Аудиозапись превышает допустимый размер', {
-        details: { reason: 'audio_too_large', maxBytes: MAX_AUDIO_UPLOAD_BYTES },
-      });
-    }
-
-    const mimeType = baseMimeType(part.mimetype);
-
-    if (!(STT_SUPPORTED_MIME_TYPES as readonly string[]).includes(mimeType)) {
-      throw unsupportedMediaType(`Формат аудио не поддерживается: ${mimeType || 'не указан'}`, {
-        details: {
-          reason: 'audio_mime_not_supported',
-          mimeType,
-          supported: STT_SUPPORTED_MIME_TYPES,
-        },
-      });
-    }
-
-    audio = { bytes, filename: safeFilename(part.filename, mimeType), mimeType };
+    throw error;
   }
 
   if (audio === undefined) {

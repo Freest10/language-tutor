@@ -491,6 +491,18 @@ a {
   font-weight: 600;
 }
 
+/* Блок загрузки: подпись и полосы-скелетоны (компонент `LoadingBlock`) */
+.lt-loading {
+  display: grid;
+  gap: var(--lt-space-sm);
+  margin-block-end: var(--lt-space-md);
+}
+
+.lt-loading__line {
+  height: 2rem;
+  margin: 0;
+}
+
 /* Скелетон загрузки */
 .lt-skeleton {
   background: var(--lt-color-surface);

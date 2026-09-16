@@ -42,7 +42,7 @@ import {
   type StartLessonResponse,
 } from '@lt/shared';
 
-import { ApiError, api } from './client';
+import { api, clientValidationError } from './client';
 import { LONG_TIMEOUT_MS } from './config';
 
 /** Путь урока (без префикса `/api` — его добавляет клиент). */
@@ -91,21 +91,6 @@ export const LESSON_NOTES_MAX_LENGTH = 2000;
 
 /** Сколько реплик читается за один запрос ленты. */
 export const LESSON_MESSAGES_PAGE_SIZE = MAX_PAGE_SIZE;
-
-/**
- * Отказ клиентской проверки: тело до сервера не дошло.
- *
- * Оформлен как `ApiError` с кодом `validation_error` и `status: 0` — интерфейсу
- * не нужно различать, кто отверг данные, клиент или сервер.
- */
-function clientValidationError(message: string, issues: unknown): ApiError {
-  return new ApiError({
-    code: 'validation_error',
-    message,
-    status: 0,
-    details: { reason: 'client_validation', issues },
-  });
-}
 
 /** Реплика ученика до проверки схемой: `source` и `durationMs` необязательны. */
 export interface LessonTurnInput {

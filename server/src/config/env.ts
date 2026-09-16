@@ -221,11 +221,26 @@ export class EnvValidationError extends Error {
   }
 }
 
-/** Имя `EnvValidationError`: позволяет опознать ошибку без импорта модуля. */
-export const ENV_VALIDATION_ERROR_NAME = 'EnvValidationError';
-
 /** Переменные, значения которых не попадают в сообщение об ошибке. */
 const SECRET_VARIABLE_PATTERN = /(KEY|TOKEN|SECRET|PASSWORD)/;
+
+/** Значение похоже на адрес: `схема://…`. */
+const URL_LIKE_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/**
+ * Значение переменной для сообщения об ошибке.
+ *
+ * Имени переменной мало: ключ прячут и в самом адресе — `https://user:sk-…@host`
+ * или `?api_key=…`. Поэтому у всего, что похоже на URL, отбрасываются учётные
+ * данные и строка запроса; сообщение об ошибке уходит в консоль и в лог.
+ */
+function describeValue(value: string): string {
+  if (!URL_LIKE_PATTERN.test(value)) {
+    return value;
+  }
+
+  return value.replace(/\/\/[^/@\s]*@/u, '//').replace(/[?#].*$/u, '');
+}
 
 function describeIssue(
   issue: z.core.$ZodIssue,
@@ -236,7 +251,7 @@ function describeIssue(
   const shown =
     received === undefined || SECRET_VARIABLE_PATTERN.test(variable)
       ? ''
-      : ` (получено: "${received}")`;
+      : ` (получено: "${describeValue(received)}")`;
 
   return `  - ${variable}: ${issue.message}${shown}`;
 }

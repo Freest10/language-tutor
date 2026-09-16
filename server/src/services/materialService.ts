@@ -63,6 +63,12 @@ export const MAX_UPLOAD_BYTES = Math.min(MAX_MATERIAL_UPLOAD_BYTES, env.maxUploa
 /** Название материала, если его неоткуда взять. */
 const FALLBACK_TITLE = 'Материал без названия';
 
+/** Короткое слово в ключевые слова отбора фрагментов не берём. */
+const MIN_KEYWORD_LENGTH = 4;
+
+/** Предел числа ключевых слов для отбора фрагментов. */
+const MAX_KEYWORDS = 24;
+
 /** Предельные длины полей контракта: значения обрезаются, а не отбрасываются. */
 const MAX_TITLE_LENGTH = 200;
 const MAX_FILE_NAME_LENGTH = 255;
@@ -174,7 +180,7 @@ export async function createMaterialFromFile(input: CreateFileMaterialInput): Pr
       title: input.title ?? titleFromFileName(fileName),
       language: input.language,
       originalFileName: fileName,
-      mimeType: truncate(input.mimeType ?? null, MAX_MIME_TYPE_LENGTH),
+      mimeType: clampOrNull(input.mimeType ?? null, MAX_MIME_TYPE_LENGTH),
       sizeBytes: input.data.length,
       filePath,
       extract: () => extractText(input.data, kind.format),
@@ -220,7 +226,7 @@ async function buildMaterial(draft: {
   const timestamp = nowIso();
   const base: Material = {
     id: draft.id,
-    title: truncate(draft.title, MAX_TITLE_LENGTH) ?? FALLBACK_TITLE,
+    title: clampOrNull(draft.title, MAX_TITLE_LENGTH) ?? FALLBACK_TITLE,
     sourceType: draft.sourceType,
     status: 'ready',
     statusMessage: null,
@@ -247,7 +253,7 @@ async function buildMaterial(draft: {
       ? {
           ...base,
           status: error.status,
-          statusMessage: truncate(error.message, MAX_STATUS_MESSAGE_LENGTH),
+          statusMessage: clampOrNull(error.message, MAX_STATUS_MESSAGE_LENGTH),
         }
       : {
           ...base,
@@ -522,6 +528,23 @@ function pickWithinBudget(
   return { chunks, truncated: truncated || leftovers > 0 };
 }
 
+/**
+ * Ключевые слова для отбора фрагментов из произвольных текстов: темы урока, целей,
+ * отрабатываемых единиц. Короткие слова отбрасываются — они совпадают со всем
+ * подряд и оценка фрагмента перестаёт что-либо значить.
+ *
+ * Живёт рядом с `normalizeKeywords()` и `scoreChunk()`, которые эти слова и
+ * потребляют: правила отбора и правила оценки должны меняться вместе.
+ */
+export function extractKeywords(sources: readonly (string | null | undefined)[]): string[] {
+  const words = sources
+    .filter((source): source is string => typeof source === 'string' && source.length > 0)
+    .flatMap((source) => source.toLowerCase().split(/[^\p{L}\p{N}]+/u))
+    .filter((word) => word.length >= MIN_KEYWORD_LENGTH);
+
+  return [...new Set(words)].slice(0, MAX_KEYWORDS);
+}
+
 /** Ключевые слова в нормализованном виде: без регистра, без пустых значений. */
 function normalizeKeywords(keywords: readonly string[]): string[] {
   return [
@@ -656,7 +679,7 @@ export function safeFileName(fileName: string | null | undefined): string | null
     .replace(/^\.+/, '')
     .trim();
 
-  return truncate(cleaned, MAX_FILE_NAME_LENGTH);
+  return clampOrNull(cleaned, MAX_FILE_NAME_LENGTH);
 }
 
 /** Название материала по имени файла. */
@@ -680,8 +703,13 @@ function titleFromText(text: string): string {
   return firstLine === undefined ? FALLBACK_TITLE : firstLine.slice(0, 80);
 }
 
-/** Обрезает строку до предела контракта; пустая строка превращается в `null`. */
-function truncate(value: string | null, limit: number): string | null {
+/**
+ * Обрезает строку до предела контракта; пустая строка превращается в `null`.
+ * Имя отличается от промптового `truncateForPrompt()` намеренно: там строка
+ * всегда остаётся строкой и обрыв помечается многоточием, здесь пустое значение
+ * означает «поля нет» и уходит в базу как `NULL`.
+ */
+function clampOrNull(value: string | null, limit: number): string | null {
   if (value === null) {
     return null;
   }

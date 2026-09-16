@@ -33,6 +33,8 @@ import ruProfile from './locales/ru/profile.json';
 import ruProgress from './locales/ru/progress.json';
 import ruVoice from './locales/ru/voice.json';
 
+import { LOCALE_STORAGE_KEY, readStoredValue, writeStoredValue } from '../lib/storage';
+
 /** Языки интерфейса, для которых есть полный набор переводов. */
 export const UI_LOCALES = ['en', 'ru'] as const;
 
@@ -61,7 +63,7 @@ export type AppNamespace = (typeof APP_NAMESPACES)[number];
 export const DEFAULT_NAMESPACE = 'common' satisfies AppNamespace;
 
 /** Ключ localStorage, в котором хранится выбранный язык интерфейса. */
-export const LOCALE_STORAGE_KEY = 'lt.interfaceLanguage';
+export { LOCALE_STORAGE_KEY };
 
 /** Все переводы, вшитые в бандл: запросов за словарями во время работы нет. */
 export const resources = {
@@ -110,21 +112,12 @@ export function localeLabel(locale: UiLocale): string {
 
 /** Ранее выбранный язык интерфейса; `null`, если выбора не было. */
 export function readStoredLocale(): UiLocale | null {
-  try {
-    return toUiLocale(window.localStorage.getItem(LOCALE_STORAGE_KEY));
-  } catch {
-    // Приватный режим или отключённое хранилище — молча работаем без него.
-    return null;
-  }
+  return toUiLocale(readStoredValue(LOCALE_STORAGE_KEY));
 }
 
 /** Запоминает выбранный язык интерфейса до следующей загрузки страницы. */
 export function storeLocale(locale: UiLocale): void {
-  try {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, locale);
-  } catch {
-    // См. `readStoredLocale`: отсутствие хранилища не должно ломать переключение.
-  }
+  writeStoredValue(LOCALE_STORAGE_KEY, locale);
 }
 
 /** Язык интерфейса при старте: выбор пользователя → язык браузера → `en`. */

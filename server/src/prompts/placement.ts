@@ -18,10 +18,7 @@
 import { z } from 'zod';
 
 import {
-  CEFR_LEVELS,
   cefrLevelSchema,
-  KNOWN_LANGUAGE_CODES,
-  LANGUAGE_LABELS,
   levelConfidenceSchema,
   PLACEMENT_SKILLS,
   placementSkillSchema,
@@ -30,7 +27,10 @@ import {
   type PlacementTurn,
 } from '@lt/shared';
 
+import { shiftLevel } from '../lib/cefr.js';
 import type { ChatMessage } from '../providers/types.js';
+
+import { languageForPrompt, truncateForPrompt } from './format.js';
 
 /** Первый вопрос сессии: уровень вопроса задаёт сервер, модель выбирает навык. */
 export const placementQuestionSchema = z.object({
@@ -95,14 +95,6 @@ export const PLACEMENT_PROMOTE_SCORE = 0.75;
 /** Оценка, на которой и ниже которой следующий вопрос задаётся на ступень ниже. */
 export const PLACEMENT_DEMOTE_SCORE = 0.4;
 
-/** Сдвигает уровень CEFR на заданное число ступеней, не выходя за края шкалы. */
-export function shiftLevel(level: CefrLevel, steps: number): CefrLevel {
-  const index = CEFR_LEVELS.indexOf(level);
-  const shifted = Math.min(CEFR_LEVELS.length - 1, Math.max(0, index + steps));
-
-  return CEFR_LEVELS[shifted] ?? level;
-}
-
 /**
  * Уровень следующего вопроса по уровню предыдущего и оценке ответа:
  * верный ответ поднимает сложность, неверный опускает, промежуточный оставляет.
@@ -125,18 +117,6 @@ export interface PlacementPromptContext {
   maxTurns: number;
   /** Сводка профиля из `getProfileForPrompt()`. */
   profileSummary: string;
-}
-
-/** Английские названия языков пресетов для строк промпта. */
-const LANGUAGE_NAMES: Record<string, string | undefined> = Object.fromEntries(
-  KNOWN_LANGUAGE_CODES.map((code) => [code, LANGUAGE_LABELS[code].englishName]),
-);
-
-/** Название языка для промпта: `German (de)`, для кода вне пресетов — сам код. */
-function languageForPrompt(code: LanguageCode): string {
-  const name = LANGUAGE_NAMES[code];
-
-  return name === undefined ? code : `${name} (${code})`;
 }
 
 /**
@@ -173,12 +153,25 @@ export function buildPlacementSystemPrompt(context: PlacementPromptContext): str
   ].join('\n');
 }
 
+/**
+ * Предел длины ответа ученика в расшифровке диалога, символы.
+ *
+ * Расшифровка растёт с каждым вопросом (до `maxTurns` = 30 по контракту), а на
+ * длинном ответе уровень читается по первым фразам: дальше идёт то же самое.
+ * Без предела один разговорчивый ученик переполнял бы окно модели.
+ */
+const TRANSCRIPT_ANSWER_MAX_CHARS = 400;
+
 /** Строки одного заданного вопроса и ответа на него для расшифровки диалога. */
 function formatTurn(turn: PlacementTurn, index: number): string {
+  const answer =
+    turn.answer === null || turn.answer === undefined
+      ? '(no answer yet)'
+      : truncateForPrompt(turn.answer, TRANSCRIPT_ANSWER_MAX_CHARS);
   const lines = [
     `#${String(index + 1)} [skill: ${turn.skill}, level: ${turn.targetLevel}]`,
     `Q: ${turn.question}`,
-    `A: ${turn.answer ?? '(no answer yet)'}`,
+    `A: ${answer}`,
   ];
 
   if (turn.score !== null && turn.score !== undefined) {
@@ -242,7 +235,7 @@ export function buildEvaluationMessages(
     '',
     'Current question and answer:',
     `Q [skill: ${options.currentTurn.skill}, level: ${options.currentTurn.targetLevel}]: ${options.currentTurn.question}`,
-    `A: ${options.answer}`,
+    `A: ${truncateForPrompt(options.answer, TRANSCRIPT_ANSWER_MAX_CHARS)}`,
     '',
     'Evaluate this answer: fill "score", "feedback", "estimatedLevel", "confidence" and "rationale".',
   ];

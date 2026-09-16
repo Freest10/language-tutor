@@ -43,6 +43,7 @@ import {
 } from './useLessons';
 
 import { LESSON_TOPIC_MAX_LENGTH, notReadyMaterials } from '../../api/lessons';
+import { LoadingBlock } from '../../components/LoadingBlock';
 import { useT } from '../../i18n/useT';
 
 /**
@@ -339,28 +340,14 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
           </fieldset>
 
           {isBusy && (
-            <div className="lt-card" style={{ marginBottom: 'var(--lt-space-md)' }}>
-              <p role="status" style={{ marginTop: 0 }}>
-                {t('create.generating.title')}
-              </p>
+            <LoadingBlock label={t('create.generating.title')} lines={3} card>
               <p className="lt-status">{t('create.generating.description')}</p>
               {readiness.model && (
                 <p className="lt-status">
                   {t('create.generating.model', { model: readiness.model })}
                 </p>
               )}
-              <p
-                className="lt-skeleton"
-                aria-hidden="true"
-                style={{ height: '1rem', marginBottom: 'var(--lt-space-sm)' }}
-              />
-              <p
-                className="lt-skeleton"
-                aria-hidden="true"
-                style={{ height: '1rem', marginBottom: 'var(--lt-space-sm)' }}
-              />
-              <p className="lt-skeleton" aria-hidden="true" style={{ height: '1rem', margin: 0 }} />
-            </div>
+            </LoadingBlock>
           )}
 
           {create.isError && (

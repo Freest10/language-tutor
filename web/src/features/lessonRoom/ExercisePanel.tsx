@@ -15,8 +15,14 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import type { Exercise, LanguageCode } from '@lt/shared';
 
 import { FeedbackCard } from './FeedbackCard';
-import { useVoiceDraft, type ExerciseFeedback, type LessonAnswerOptions } from './useLessonSession';
+import {
+  useLessonSessionErrorMessage,
+  useVoiceDraft,
+  type ExerciseFeedback,
+  type LessonAnswerOptions,
+} from './useLessonSession';
 
+import type { ApiError } from '../../api/client';
 import { EXERCISE_ANSWER_MAX_LENGTH } from '../../api/lessonSession';
 import { useT } from '../../i18n/useT';
 import { PushToTalkButton } from '../voice/PushToTalkButton';
@@ -38,10 +44,10 @@ export interface ExercisePanelProps {
   isSpeaking?: boolean;
   /** Отвечать нельзя: урок не идёт или занят другим запросом. */
   disabled?: boolean;
-  /** Готовое сообщение об отказе проверки; `null` — отказа не было. */
-  error?: string | null;
+  /** Отказ проверки ответа; текст для пользователя собирает сама панель. */
+  error?: ApiError | null;
   /** Повторить отправку ответа. */
-  onRetry?: (() => void) | null;
+  onRetry?: () => void;
   /** Прервать озвучивание: удержание кнопки записи глушит тьютора. */
   onStopSpeaking?: () => void;
   /** Отказ озвучивания: показывается рядом с состоянием голосового ввода. */
@@ -62,13 +68,14 @@ export function ExercisePanel({
   isSpeaking = false,
   disabled = false,
   error = null,
-  onRetry = null,
+  onRetry,
   onStopSpeaking,
   ttsFailure = null,
   onSubmit,
   onNext,
 }: ExercisePanelProps) {
   const t = useT('lessonRoom');
+  const toErrorMessage = useLessonSessionErrorMessage();
   const fieldId = useId();
   const draft = useVoiceDraft();
   const [choice, setChoice] = useState('');
@@ -243,7 +250,7 @@ export function ExercisePanel({
       {error !== null && (
         <div className="lt-banner lt-banner--error" role="alert">
           <p className="lt-banner__title">{t('exercise.errors.attemptFailed')}</p>
-          <p>{error}</p>
+          <p>{toErrorMessage(error)}</p>
           {onRetry && (
             <button type="button" className="lt-button" disabled={blocked} onClick={onRetry}>
               {t('common:actions.retry')}

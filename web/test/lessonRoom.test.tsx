@@ -44,10 +44,22 @@ import {
 
 import { App } from '../src/App';
 import { LESSON_TURN_MAX_LENGTH } from '../src/api/lessonSession';
+import type { TextToSpeechStatus } from '../src/features/voice/useTextToSpeech';
+import type {
+  VoiceFailure,
+  VoiceFailureKind,
+  VoiceInputStatus,
+} from '../src/features/voice/useVoiceInput';
 import { i18n } from '../src/i18n';
 import { lessonRoomPath, routes } from '../src/router';
 
-/** Подменённый голосовой ввод: расшифровка отдаётся по отпусканию кнопки. */
+/**
+ * Подменённый голосовой ввод: расшифровка отдаётся по отпусканию кнопки.
+ *
+ * `available` и `failure` изменяемы: отказ голоса посреди урока — обычный
+ * сценарий (микрофон занят, провайдер отвалился), и комната обязана объяснить
+ * его словами и не мешать закончить урок текстом.
+ */
 const voiceStub = vi.hoisted(() => {
   const state = {
     result: {
@@ -61,7 +73,7 @@ const voiceStub = vi.hoisted(() => {
   return {
     state,
     input: {
-      status: 'idle' as const,
+      status: 'idle' as VoiceInputStatus,
       available: true,
       provider: 'browser' as const,
       runsInBrowser: true,
@@ -70,7 +82,7 @@ const voiceStub = vi.hoisted(() => {
       interimText: '',
       text: '',
       level: 0,
-      failure: null,
+      failure: null as VoiceFailure | null,
       start: vi.fn(() => Promise.resolve(true)),
       stop: vi.fn(() => Promise.resolve(state.result)),
       cancel: vi.fn(),
@@ -81,14 +93,14 @@ const voiceStub = vi.hoisted(() => {
 
 /** Подменённое озвучивание: проверяем вызовы, а не звук. */
 const ttsStub = vi.hoisted(() => ({
-  status: 'idle' as const,
+  status: 'idle' as TextToSpeechStatus,
   isSpeaking: false,
   available: true,
   provider: 'browser' as const,
   runsInBrowser: true,
   queueLength: 0,
   rate: 1,
-  failure: null,
+  failure: null as VoiceFailure | null,
   speak: vi.fn(() => Promise.resolve()),
   enqueue: vi.fn(() => Promise.resolve()),
   stop: vi.fn(),
@@ -477,6 +489,24 @@ function composerField(): Promise<HTMLTextAreaElement> {
   ) as Promise<HTMLTextAreaElement>;
 }
 
+/** Отказ голосового слоя с теми же текстами, что собирает `useVoiceFailure`. */
+function voiceFailure(
+  kind: VoiceFailureKind,
+  channel: VoiceFailure['channel'],
+  hintKey: string,
+  options: { canRetry?: boolean; suggestTyping?: boolean } = {},
+): VoiceFailure {
+  return {
+    kind,
+    channel,
+    message: i18n.t(`voice:${channel}.errors.${kind}`),
+    hint: i18n.t(`voice:${hintKey}`),
+    canRetry: options.canRetry ?? true,
+    needsServerFallback: false,
+    suggestTyping: options.suggestTyping ?? false,
+  };
+}
+
 beforeEach(async () => {
   calls = [];
   window.localStorage.clear();
@@ -487,6 +517,13 @@ beforeEach(async () => {
     language: 'en',
     durationMs: 2400,
   };
+  voiceStub.input.status = 'idle';
+  voiceStub.input.available = true;
+  voiceStub.input.failure = null;
+  ttsStub.status = 'idle';
+  ttsStub.available = true;
+  ttsStub.isSpeaking = false;
+  ttsStub.failure = null;
   await i18n.changeLanguage('en');
 });
 
@@ -736,6 +773,47 @@ describe('задания урока', () => {
         lastCall('POST', '/lessons/l-1/exercises/e-mc/attempts'),
       ),
     ).toMatchObject({ answer: 'I went to school yesterday', source: 'text' });
+  });
+
+  it('отказ проверки ответа объясняется словами и повторяется кнопкой', async () => {
+    const task = exercise({ id: 'e-fail', type: 'fill_blank', prompt: 'Yesterday I ___ home.' });
+    let attempts = 0;
+
+    stubRoom({
+      detail: { lesson: RUNNING_LESSON, exercises: [task], attempts: [] },
+      onAttempt: () => {
+        attempts += 1;
+
+        return attempts === 1
+          ? errorResponse('upstream_error', 502)
+          : jsonResponse(checkedAttempt({ exercise: task, answer: 'went' }), 201);
+      },
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(task.prompt)).toBeInTheDocument();
+
+    const panel = exercisePanel();
+
+    await user.type(
+      within(panel).getByLabelText(i18n.t('lessonRoom:exercise.answer.label')),
+      'went',
+    );
+    await user.click(
+      within(panel).getByRole('button', { name: i18n.t('lessonRoom:exercise.actions.submit') }),
+    );
+
+    const alert = await within(panel).findByRole('alert');
+
+    // Текст собирает сама панель из `ApiError`, а не страница из готовой строки.
+    expect(alert).toHaveTextContent(i18n.t('lessonRoom:exercise.errors.attemptFailed'));
+    expect(alert).toHaveTextContent(i18n.t('lessons:errors.upstreamError'));
+
+    await user.click(within(alert).getByRole('button', { name: i18n.t('common:actions.retry') }));
+
+    expect(await screen.findByText(i18n.t('lessonRoom:feedback.correct'))).toBeInTheDocument();
+    expect(callsTo('POST', '/lessons/l-1/exercises/e-fail/attempts')).toHaveLength(2);
   });
 
   it('подстановка показывает вид задания и подсказки', async () => {
@@ -1027,6 +1105,65 @@ describe('ввод реплики', () => {
     expect(
       await screen.findByLabelText(i18n.t('lessonRoom:composer.autoSpeak.label')),
     ).not.toBeChecked();
+  });
+});
+
+describe('отказ голоса посреди урока', () => {
+  it('объясняет отказ микрофона и даёт закончить урок текстом', async () => {
+    stubRoom({ onTurn: () => jsonResponse(turnResponse('We went to the lake')) });
+
+    // Микрофон занят другим приложением: голосового ввода больше нет.
+    voiceStub.input.status = 'unavailable';
+    voiceStub.input.available = false;
+    voiceStub.input.failure = voiceFailure('no_device', 'input', 'hints.checkMicrophone', {
+      suggestTyping: true,
+    });
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    expect(await screen.findByText(GREETING.content)).toBeInTheDocument();
+
+    // Молча неработающая кнопка недопустима: отказ объяснён словами (A14).
+    expect(await screen.findByText(i18n.t('voice:input.errors.no_device'))).toBeInTheDocument();
+    expect(screen.getAllByText(i18n.t('voice:hints.checkMicrophone')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(i18n.t('voice:hints.typeInstead')).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole('button', { name: i18n.t('voice:pushToTalk.hold') })[0],
+    ).toBeDisabled();
+
+    // Урок продолжается текстом: реплика уходит на сервер как обычно.
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    expect(await screen.findByText('Sounds nice! What did you do there?')).toBeInTheDocument();
+    expect(bodyOf<LessonTurnRequest>(lastCall('POST', '/lessons/l-1/turns'))).toMatchObject({
+      text: 'We went to the lake',
+      source: 'text',
+    });
+  });
+
+  it('показывает отказ озвучивания, не превращая его в ошибку урока', async () => {
+    stubRoom({ onTurn: () => jsonResponse(turnResponse('We went to the lake')) });
+
+    // Синтез отвалился: тьютор отвечает, но молча.
+    ttsStub.status = 'error';
+    ttsStub.available = false;
+    ttsStub.failure = voiceFailure('failed', 'output', 'hints.retry');
+
+    const { user } = renderApp(lessonRoomPath('l-1'));
+
+    const notice = await screen.findByText(i18n.t('voice:output.errors.failed'));
+
+    expect(notice).toBeInTheDocument();
+    // Отказ озвучивания — сообщение, а не ошибка: ученик продолжает говорить.
+    expect(notice.closest('[role="status"]')).not.toBeNull();
+    expect(screen.queryByText(i18n.t('voice:input.errors.failed'))).not.toBeInTheDocument();
+
+    await user.type(await composerField(), 'We went to the lake');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessonRoom:composer.send') }));
+
+    // Ответ тьютора виден текстом, даже если сказать его вслух не удалось.
+    expect(await screen.findByText('Sounds nice! What did you do there?')).toBeInTheDocument();
   });
 });
 

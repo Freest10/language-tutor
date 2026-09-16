@@ -36,6 +36,7 @@ import {
   type ListVocabularyParams,
 } from '../../api/progress';
 import { useLocale } from '../../i18n/useT';
+import { formatDate, formatDateTime } from '../../lib/format';
 
 /** Корень ключей запросов фичи: по нему инвалидируется весь раздел. */
 export const PROGRESS_QUERY_KEY = ['progress'] as const;
@@ -296,7 +297,7 @@ export function defaultVocabularyOrder(sort: VocabularySortField): SortOrder {
 
 /** Форматирование дат, долей и чисел по языку интерфейса. */
 export interface ProgressFormatters {
-  /** Только дата: `15 сентября 2026 г.` */
+  /** Только дата: `15 сент. 2026 г.` */
   formatDate: (isoDate: string) => string;
   /** Дата и время: у записей журнала важен и час. */
   formatDateTime: (isoDate: string) => string;
@@ -306,23 +307,11 @@ export interface ProgressFormatters {
   formatNumber: (value: number) => string;
 }
 
-/** Дата в формате языка интерфейса; при неразбираемом значении — как есть. */
-function formatWith(isoDate: string, format: Intl.DateTimeFormat): string {
-  const date = new Date(isoDate);
-
-  return Number.isNaN(date.getTime()) ? isoDate : format.format(date);
-}
-
 /** Форматирование дат, долей и чисел по текущему языку интерфейса. */
 export function useProgressFormatters(): ProgressFormatters {
   const { locale } = useLocale();
 
   return useMemo(() => {
-    const dateFormat = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
-    const dateTimeFormat = new Intl.DateTimeFormat(locale, {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
     const percentFormat = new Intl.NumberFormat(locale, {
       style: 'percent',
       maximumFractionDigits: 0,
@@ -330,8 +319,8 @@ export function useProgressFormatters(): ProgressFormatters {
     const numberFormat = new Intl.NumberFormat(locale);
 
     return {
-      formatDate: (isoDate: string) => formatWith(isoDate, dateFormat),
-      formatDateTime: (isoDate: string) => formatWith(isoDate, dateTimeFormat),
+      formatDate: (isoDate: string) => formatDate(isoDate, locale),
+      formatDateTime: (isoDate: string) => formatDateTime(isoDate, locale),
       formatPercent: (ratio: number) => percentFormat.format(ratio),
       formatNumber: (value: number) => numberFormat.format(value),
     };

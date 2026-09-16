@@ -13,9 +13,10 @@ import { useId, useState, type FormEvent, type KeyboardEvent, type ReactNode } f
 
 import type { PlacementTurn } from '@lt/shared';
 
+import type { ApiError } from '../../api/client';
 import { PLACEMENT_ANSWER_MAX_LENGTH } from '../../api/placement';
 import { useT } from '../../i18n/useT';
-import type { PlacementAnswerOptions } from './usePlacement';
+import { usePlacementErrorMessage, type PlacementAnswerOptions } from './usePlacement';
 
 /**
  * Что слот ввода получает от диалога.
@@ -45,10 +46,10 @@ export interface PlacementChatProps {
   isAnswering: boolean;
   /** Идёт завершение теста и подсчёт уровня. */
   isFinishing: boolean;
-  /** Готовое сообщение об ошибке; `null` — ошибки нет. */
-  error?: string | null;
-  /** Повторить последнее действие; `null` — повторять нечего. */
-  onRetry?: (() => void) | null;
+  /** Отказ сервера; текст для пользователя собирает сам диалог. */
+  error?: ApiError | null;
+  /** Повторить последнее действие; не задан — повторять нечего. */
+  onRetry?: () => void;
   /** Отправка ответа на текущий вопрос. */
   onSubmit: (text: string, options?: PlacementAnswerOptions) => void;
   /** Завершить тест, не отвечая на оставшиеся вопросы. */
@@ -173,12 +174,13 @@ export function PlacementChat({
   isAnswering,
   isFinishing,
   error = null,
-  onRetry = null,
+  onRetry,
   onSubmit,
   onFinish,
   renderInput,
 }: PlacementChatProps) {
   const t = useT('placement');
+  const toErrorMessage = usePlacementErrorMessage();
   const fieldId = useId();
   const isBusy = isAnswering || isFinishing;
   const inputDisabled = isBusy || currentTurn === null;
@@ -210,7 +212,7 @@ export function PlacementChat({
 
       {error !== null && (
         <div className="lt-banner lt-banner--error" role="alert">
-          <p>{error}</p>
+          <p>{toErrorMessage(error)}</p>
           <p>{t('errors.progressKept')}</p>
           {onRetry && (
             <button type="button" className="lt-button" disabled={isBusy} onClick={onRetry}>

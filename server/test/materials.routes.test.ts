@@ -13,6 +13,7 @@ import {
   getMaterialResponseSchema,
   listMaterialsResponseSchema,
   MATERIAL_FILE_FIELD_NAME,
+  MAX_MATERIAL_TEXT_LENGTH,
   type Material,
 } from '@lt/shared';
 
@@ -429,6 +430,28 @@ describe('POST /api/materials: загрузка файла', () => {
     expect(material.title).toBe('passwd');
   });
 
+  it('отвечает 413 на запрос с лишними текстовыми полями', async () => {
+    // Пределы разбора multipart заданы на маршруте: без них один запрос
+    // удерживал бы в памяти сколько угодно полей и файловых частей.
+    const fields = Object.fromEntries(
+      Array.from({ length: 12 }, (_, index) => [`field-${String(index)}`, 'x'.repeat(100)]),
+    );
+    const { payload, headers } = multipart(
+      { fileName: 'sample.txt', contentType: 'text/plain', content: fixture('sample.txt') },
+      fields,
+    );
+    const response = await app.inject({
+      method: 'POST',
+      url: `${API_PREFIX}/materials`,
+      payload,
+      headers,
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(apiErrorResponseSchema.parse(response.json()).error.code).toBe('payload_too_large');
+    expect(readdirSync(uploadDir)).toEqual([]);
+  });
+
   it('не принимает имя файла с обратными слешами как путь', async () => {
     const material = await uploadMaterial({
       fileName: 'C:\\\\Windows\\\\system32\\\\notes.txt',
@@ -461,6 +484,32 @@ describe('POST /api/materials: вставленный текст', () => {
     expect(material.originalFileName).toBeNull();
     expect(filePathOf(material.id)).toBeNull();
     expect(readdirSync(uploadDir)).toEqual([]);
+  });
+
+  it('отвечает 400 на текст длиннее предела контракта', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `${API_PREFIX}/materials`,
+      payload: { text: 'а'.repeat(MAX_MATERIAL_TEXT_LENGTH + 1) },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(apiErrorResponseSchema.parse(response.json()).error.code).toBe('validation_error');
+    // Материал не создан: длинный текст отсекается до разбора на фрагменты.
+    const page = await app.inject({ method: 'GET', url: `${API_PREFIX}/materials` });
+
+    expect(listMaterialsResponseSchema.parse(page.json()).total).toBe(0);
+  });
+
+  it('принимает текст ровно по пределу контракта', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: `${API_PREFIX}/materials`,
+      payload: { text: `Предельный текст\n${'а'.repeat(MAX_MATERIAL_TEXT_LENGTH - 17)}` },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(createMaterialResponseSchema.parse(response.json()).status).toBe('ready');
   });
 
   it('отвечает 400 на пустой текст', async () => {
@@ -651,7 +700,7 @@ describe('getChunksForLesson', () => {
     expect(selection.chunks[0]?.score).toBeGreaterThan(0);
   });
 
-  it('пропускает материалы без готового текста и не берёт ничего при нулевом бюджете', async () => {
+  it('пропускает материалы без готового текста и неизвестные идентификаторы', async () => {
     const scan = await uploadMaterial({
       fileName: 'scan.pdf',
       contentType: 'application/pdf',
@@ -664,6 +713,30 @@ describe('getChunksForLesson', () => {
       skippedMaterialIds: [scan.id],
     });
     expect(getChunksForLesson([], 5000).chunks).toEqual([]);
-    expect(getChunksForLesson(['нет-такого'], 0).chunks).toEqual([]);
+    // Бюджет нормальный, материала не существует: пропущен по идентификатору.
+    expect(getChunksForLesson(['нет-такого'], 5000)).toMatchObject({
+      chunks: [],
+      totalChars: 0,
+      skippedMaterialIds: ['нет-такого'],
+    });
+  });
+
+  it('не берёт ни одного фрагмента при нулевом бюджете', async () => {
+    // Материал настоящий и готовый: пустой результат обязан быть следствием
+    // бюджета, а не того, что брать было нечего.
+    const material = await uploadMaterial({
+      fileName: 'sample.txt',
+      contentType: 'text/plain',
+      content: fixture('sample.txt'),
+    });
+
+    expect(getChunksForLesson([material.id], 100_000).chunks.length).toBeGreaterThan(0);
+    expect(getChunksForLesson([material.id], 0)).toMatchObject({
+      chunks: [],
+      totalChars: 0,
+      estimatedTokens: 0,
+      skippedMaterialIds: [material.id],
+    });
+    expect(getChunksForLesson([material.id], -1).chunks).toEqual([]);
   });
 });

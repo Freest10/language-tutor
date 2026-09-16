@@ -58,6 +58,8 @@ import {
 
 import { nowIso } from '../db/mappers.js';
 import { conflict, notFound } from '../lib/httpErrors.js';
+import { accuracyRatio } from '../lib/metrics.js';
+import { excerptSource } from '../prompts/format.js';
 import {
   buildLessonGreetingMessages,
   buildLessonSummaryMessages,
@@ -79,7 +81,6 @@ import {
 } from '../prompts/tutorTurn.js';
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import { isProviderError, type ProviderLogger } from '../providers/types.js';
-import { findLessonById } from '../repositories/lessonRepository.js';
 import {
   findAttemptedExerciseIds,
   findLessonExercise,
@@ -100,7 +101,8 @@ import {
   type ExerciseServiceOptions,
 } from './exerciseService.js';
 import * as learnerContext from './learnerContext.js';
-import { getChunksForLesson } from './materialService.js';
+import { requireLesson } from './lessonAccess.js';
+import { extractKeywords, getChunksForLesson } from './materialService.js';
 import { getProfile, getProfileForPrompt } from './profileService.js';
 import {
   listErrors,
@@ -117,12 +119,6 @@ const TUTOR_TEMPERATURE = 0.6;
 /** Температура итоговой сводки: итог должен быть предсказуемым, а не разнообразным. */
 const SUMMARY_TEMPERATURE = 0.3;
 
-/** Короткое слово в ключевые слова отбора фрагментов не берём. */
-const MIN_KEYWORD_LENGTH = 4;
-
-/** Предел числа ключевых слов для отбора фрагментов. */
-const MAX_KEYWORDS = 24;
-
 /**
  * Предел длительности урока в итоге, минуты. Урок, оставленный открытым на сутки,
  * не должен превращаться в 1440 минут занятий в статистике.
@@ -138,17 +134,6 @@ export interface LessonSessionOptions extends ExerciseServiceOptions {
 // ---------------------------------------------------------------------------
 // Урок и его шаги
 // ---------------------------------------------------------------------------
-
-/** Урок по идентификатору; 404, если его нет. */
-function requireLesson(id: Id): Lesson {
-  const lesson = findLessonById(id);
-
-  if (lesson === undefined) {
-    throw notFound('Урок не найден', { details: { reason: 'lesson_not_found', lessonId: id } });
-  }
-
-  return lesson;
-}
 
 /** Идущий урок; 409 — урок ещё не начат или уже завершён. */
 function requireRunningLesson(id: Id): Lesson {
@@ -244,31 +229,9 @@ function transcriptOf(lessonId: Id, exclude?: Id): TutorTranscript {
   };
 }
 
-/** Ключевые слова для отбора фрагментов: цели шага и тема урока, без коротких слов. */
+/** Ключевые слова для отбора фрагментов: цели шага и тема урока. */
 function stepKeywords(lesson: Lesson, step: LessonPlanStep): string[] {
-  const words = [lesson.topic ?? '', ...lesson.goals, ...step.targetItems, ...step.objectives]
-    .flatMap((source) => source.toLowerCase().split(/[^\p{L}\p{N}]+/u))
-    .filter((word) => word.length >= MIN_KEYWORD_LENGTH);
-
-  return [...new Set(words)].slice(0, MAX_KEYWORDS);
-}
-
-/** Строка-источник цитаты: название материала, страница и заголовок. */
-function excerptSource(
-  title: string,
-  page: number | null | undefined,
-  heading: string | null | undefined,
-): string {
-  const parts = [`"${title}"`];
-
-  if (page !== null && page !== undefined) {
-    parts.push(`page ${String(page)}`);
-  }
-  if (heading !== null && heading !== undefined && heading !== '') {
-    parts.push(heading);
-  }
-
-  return parts.join(', ');
+  return extractKeywords([lesson.topic, ...lesson.goals, ...step.targetItems, ...step.objectives]);
 }
 
 /** Отрезает цитаты по бюджету промпта: фрагмент берётся целиком или не берётся. */
@@ -650,23 +613,29 @@ export async function advanceLessonStep(
 
   if (next !== undefined) {
     const context = promptContext(lesson, profile, next.id);
-    const { data } = await requestStructuredJson({
-      schema: tutorOpeningSchema,
-      messages: buildStepIntroMessages(context, {
-        finishedStep: step,
-        finishedStatus: input.status,
-        nextStep: next,
-        note: input.note,
-        transcript: transcriptOf(lesson.id),
-        excerpts: stepExcerpts(lesson, next),
+    // Вводная реплика и задания нового шага строятся из одного и того же контекста
+    // и друг друга не ждут: последовательные вызовы удваивали паузу перехода
+    // между шагами (на локальной модели это 10–40 секунд вместо 5–20).
+    const [opening, generated] = await Promise.all([
+      requestStructuredJson({
+        schema: tutorOpeningSchema,
+        messages: buildStepIntroMessages(context, {
+          finishedStep: step,
+          finishedStatus: input.status,
+          nextStep: next,
+          note: input.note,
+          transcript: transcriptOf(lesson.id),
+          excerpts: stepExcerpts(lesson, next),
+        }),
+        schemaName: 'tutor_opening',
+        temperature: TUTOR_TEMPERATURE,
+        logger: options.logger,
       }),
-      schemaName: 'tutor_opening',
-      temperature: TUTOR_TEMPERATURE,
-      logger: options.logger,
-    });
+      tryGenerateExercises(lesson, next, context, options),
+    ]);
 
-    exercises = await tryGenerateExercises(lesson, next, context, options);
-    messages.push(tutorMessage(lesson, next, data.message, { createdAt: nowIso() }));
+    exercises = generated;
+    messages.push(tutorMessage(lesson, next, opening.data.message, { createdAt: nowIso() }));
   }
 
   const at = nowIso();
@@ -786,11 +755,6 @@ export async function submitExerciseAttempt(
   };
 }
 
-/** Доля верных ответов, 0..1; без попыток — 0, а не деление на ноль. */
-function accuracyOf(correct: number, total: number): number {
-  return total === 0 ? 0 : Math.min(1, Math.max(0, correct / total));
-}
-
 /** Фактическая длительность урока в минутах, ограниченная сверху. */
 function lessonDurationMinutes(lesson: Lesson, completedAt: string): number {
   if (lesson.startedAt === null || lesson.startedAt === undefined) {
@@ -826,7 +790,7 @@ export async function completeLesson(
   const stats: LessonSummaryStats = {
     exercisesTotal: attempts.length,
     exercisesCorrect: correct,
-    accuracy: accuracyOf(correct, attempts.length),
+    accuracy: accuracyRatio(correct, attempts.length),
     durationMinutes: input.durationMinutes ?? lessonDurationMinutes(lesson, completedAt),
     correctionsLogged: errorsLogged.length,
   };

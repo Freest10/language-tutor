@@ -153,7 +153,6 @@
     "loadFailed": "The lesson could not be loaded.",
     "notFound": "This lesson does not exist: it may have been deleted.",
     "progressKept": "Nothing is lost: the dialogue stays on the server, you can try again.",
-    "notImplemented": "This part of the lesson is not implemented on the server yet.",
     "notStarted": "The lesson has not started yet: start it before talking to the tutor.",
     "alreadyCompleted": "The lesson is already finished: create a new one to keep practising.",
     "stepNotFound": "This step is no longer in the plan: reload the page.",

@@ -13,6 +13,8 @@ import { Link } from 'react-router-dom';
 
 import { LESSON_STATUSES, type Lesson, type LessonStatus } from '@lt/shared';
 
+import type { ApiError } from '../../api/client';
+
 import {
   useLessonErrorMessage,
   useLessonFormatters,
@@ -20,6 +22,7 @@ import {
   type LessonStatusFilter,
 } from './useLessons';
 
+import { LoadingBlock } from '../../components/LoadingBlock';
 import { useT } from '../../i18n/useT';
 import { lessonPlanPath, lessonRoomPath } from '../../router';
 
@@ -31,7 +34,8 @@ export interface LessonListProps {
   total: number;
   isLoading: boolean;
   isError: boolean;
-  error: unknown;
+  /** Отказ запроса; текст для пользователя собирает сам список. */
+  error: ApiError | null;
   /** Есть ли уроки за пределами показанной страницы. */
   hasMore: boolean;
   /** Выбранный фильтр по статусу. */
@@ -63,7 +67,7 @@ interface LessonRowProps {
 /** Строка списка: название, статус, свойства урока и переходы. */
 function LessonRow({ lesson }: LessonRowProps) {
   const t = useT('lessons');
-  const { formatDate } = useLessonFormatters();
+  const { formatDateTime } = useLessonFormatters();
   const statusText = useLessonStatusText();
   const status = statusText(lesson.status);
   const titleId = useId();
@@ -80,7 +84,7 @@ function LessonRow({ lesson }: LessonRowProps) {
           </span>
         </span>
         <span className="lt-status">
-          {t('list.fields.createdAt', { date: formatDate(lesson.createdAt) })}
+          {t('list.fields.createdAt', { date: formatDateTime(lesson.createdAt) })}
         </span>
         <span className="lt-status">
           {t('list.fields.topic', { topic: lesson.topic?.trim() || t('list.noTopic') })}
@@ -151,19 +155,7 @@ export function LessonList({
         </button>
       </div>
 
-      {isLoading && (
-        <div aria-busy="true">
-          <p className="lt-placeholder" role="status">
-            {t('common:status.loading')}
-          </p>
-          <p
-            className="lt-skeleton"
-            aria-hidden="true"
-            style={{ height: '2rem', marginBottom: 'var(--lt-space-sm)' }}
-          />
-          <p className="lt-skeleton" aria-hidden="true" style={{ height: '2rem', margin: 0 }} />
-        </div>
-      )}
+      {isLoading && <LoadingBlock label={t('common:status.loading')} />}
 
       {isError && (
         <div className="lt-banner lt-banner--error" role="alert">

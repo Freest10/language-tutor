@@ -50,8 +50,8 @@ import {
 } from '../../api/lessonSession';
 import { lessonErrorReason } from '../../api/lessons';
 import { useT } from '../../i18n/useT';
+import { LESSON_ROOM_AUTO_SPEAK_KEY, readStoredValue, writeStoredValue } from '../../lib/storage';
 import {
-  LESSONS_QUERY_KEY,
   lessonsQueryKeys,
   sortLessonPlan,
   useLesson,
@@ -71,7 +71,7 @@ export const lessonRoomQueryKeys = {
 };
 
 /** Ключ localStorage с тумблером автоозвучки ответов тьютора. */
-export const LESSON_ROOM_AUTO_SPEAK_KEY = 'lt.lessonRoom.autoSpeak';
+export { LESSON_ROOM_AUTO_SPEAK_KEY };
 
 /** Обращение к серверу, которое может отказать; по нему `retry()` понимает, что повторять. */
 export type LessonSessionAction = 'start' | 'turn' | 'advance' | 'attempt' | 'complete' | 'restore';
@@ -220,23 +220,14 @@ function pickActiveExercise(
 
 /** Тумблер автоозвучки ответов тьютора: выбор переживает перезагрузку страницы. */
 export function useAutoSpeak(): [boolean, (value: boolean) => void] {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    try {
-      return window.localStorage.getItem(LESSON_ROOM_AUTO_SPEAK_KEY) !== 'off';
-    } catch {
-      // Приватный режим или отключённое хранилище: озвучиваем по умолчанию.
-      return true;
-    }
-  });
+  // Значения нет — озвучиваем: тумблер включён по умолчанию.
+  const [enabled, setEnabled] = useState<boolean>(
+    () => readStoredValue(LESSON_ROOM_AUTO_SPEAK_KEY) !== 'off',
+  );
 
   const update = useCallback((value: boolean): void => {
     setEnabled(value);
-
-    try {
-      window.localStorage.setItem(LESSON_ROOM_AUTO_SPEAK_KEY, value ? 'on' : 'off');
-    } catch {
-      // См. чтение выше: без хранилища тумблер работает до перезагрузки.
-    }
+    writeStoredValue(LESSON_ROOM_AUTO_SPEAK_KEY, value ? 'on' : 'off');
   }, []);
 
   return [enabled, update];
@@ -320,8 +311,6 @@ export function useLessonSessionErrorMessage(): (error: unknown) => string {
       }
 
       switch (lessonErrorReason(error)) {
-        case 'not_implemented':
-          return t('errors.notImplemented');
         case 'lesson_not_started':
           return t('errors.notStarted');
         case 'lesson_already_completed':
@@ -434,7 +423,7 @@ export function useLessonSession(lessonId: string): UseLessonSessionResult {
             : (previous?.attempts ?? []),
         }),
       );
-      void queryClient.invalidateQueries({ queryKey: [...LESSONS_QUERY_KEY, 'list'] });
+      void queryClient.invalidateQueries({ queryKey: lessonsQueryKeys.lists() });
     },
     [lessonId, queryClient],
   );

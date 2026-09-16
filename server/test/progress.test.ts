@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   API_PREFIX,
@@ -20,6 +20,7 @@ import { closeDb, getDb, IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/d
 import { nowIso, toIsoDate } from '../src/db/mappers.js';
 import { migrate } from '../src/db/migrate.js';
 import { PROFILE_ROW_ID } from '../src/db/rows.js';
+import { shiftLevel } from '../src/lib/cefr.js';
 import * as learnerContext from '../src/services/learnerContext.js';
 import {
   computeStreaks,
@@ -140,6 +141,36 @@ function seedLesson(id: Id, options: SeedLessonOptions = {}): Id {
   return id;
 }
 
+/** Кладёт в базу запись истории уровня: ею проверяется «первая запись — initial». */
+function seedLevelHistory(overrides: Partial<Record<string, unknown>> = {}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO level_history (
+         id, from_level, to_level, direction, source, confidence, reason, metrics,
+         changed_at, created_at
+       ) VALUES (@id, @from_level, @to_level, @direction, @source, 0.5, @reason, @metrics,
+         @changed_at, @changed_at)`,
+    )
+    .run({
+      id: 'history-seed',
+      from_level: null,
+      to_level: 'A1',
+      direction: 'initial',
+      source: 'placement',
+      reason: 'Определение уровня',
+      metrics: JSON.stringify({
+        accuracy: 0.6,
+        lessonsConsidered: 0,
+        lessonsSinceLastChange: 0,
+        exercisesEvaluated: 4,
+        windowFrom: null,
+        windowTo: null,
+      }),
+      changed_at: '2026-08-01T10:00:00.000Z',
+      ...overrides,
+    });
+}
+
 /** Уровень профиля в базе: пересчёт уровня проверяется по строке, а не по ответу. */
 function profileLevel(): CefrLevel {
   const row = getDb().prepare('SELECT level FROM profile WHERE id = ?').get(PROFILE_ROW_ID) as {
@@ -191,6 +222,10 @@ beforeEach(() => {
 
   migrate(db);
   setDb(db);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('recordVocabulary', () => {
@@ -310,6 +345,9 @@ describe('recordExerciseOutcome', () => {
   it('пишет ошибки задания и двигает счётчики отработанных слов', () => {
     const lessonId = seedLesson('lesson-outcome', { correct: 2, wrong: 1 });
 
+    // Второй урок с другой долей верных: иначе агрегат урока и агрегат за всё
+    // время совпадают, и тест проходит даже если их перепутать местами.
+    seedLesson('lesson-outcome-other', { correct: 1, wrong: 3 });
     recordVocabulary([{ term: 'gehen', translation: 'идти' }]);
 
     const result = recordExerciseOutcome({
@@ -326,7 +364,7 @@ describe('recordExerciseOutcome', () => {
     // Незнакомое слово не заводится: перевода для него нет.
     expect(countRows('vocabulary_items')).toBe(1);
     expect(result.lesson).toEqual({ total: 3, correct: 2, accuracy: 2 / 3 });
-    expect(result.overall).toEqual({ total: 3, correct: 2, accuracy: 2 / 3 });
+    expect(result.overall).toEqual({ total: 7, correct: 3, accuracy: 3 / 7 });
   });
 });
 
@@ -395,15 +433,47 @@ describe('decideLevelChange', () => {
   });
 
   it('сдвигает уровень не больше чем на maxStepsPerChange ступеней', () => {
-    const decision = decideLevelChange(levelInput({ currentLevel: 'A1', accuracy: 1 }));
+    const up = decideLevelChange(levelInput({ currentLevel: 'A1', accuracy: 1 }));
+    const down = decideLevelChange(levelInput({ currentLevel: 'B2', accuracy: 0 }));
 
-    expect(decision.toLevel).toBe('A2');
-    expect(LEVEL_CHANGE_POLICY.maxStepsPerChange).toBe(1);
+    // Шаг берётся из политики: если она разрешит два, проверка это увидит.
+    expect(up.toLevel).toBe(shiftLevel('A1', LEVEL_CHANGE_POLICY.maxStepsPerChange));
+    expect(down.toLevel).toBe(shiftLevel('B2', -LEVEL_CHANGE_POLICY.maxStepsPerChange));
+    expect(up.toLevel).not.toBe('A1');
+    expect(down.toLevel).not.toBe('B2');
+  });
+
+  it('понижает уровень ровно на границе порога и не трогает его на самом пороге', () => {
+    const atThreshold = decideLevelChange(
+      levelInput({ accuracy: LEVEL_CHANGE_POLICY.demoteAccuracy }),
+    );
+    const belowThreshold = decideLevelChange(
+      levelInput({ accuracy: LEVEL_CHANGE_POLICY.demoteAccuracy - 0.01 }),
+    );
+
+    // Граница строгая: `accuracy < demoteAccuracy`. Замена `<` на `<=` ронять
+    // уровень ровно на пороге не должна.
+    expect(atThreshold).toMatchObject({ changed: false, direction: null, toLevel: 'A2' });
+    expect(belowThreshold).toMatchObject({ changed: true, direction: 'down', toLevel: 'A1' });
   });
 
   it('не выходит за границы шкалы CEFR', () => {
     expect(decideLevelChange(levelInput({ currentLevel: 'C2', accuracy: 1 })).changed).toBe(false);
     expect(decideLevelChange(levelInput({ currentLevel: 'A1', accuracy: 0 })).changed).toBe(false);
+  });
+});
+
+describe('shiftLevel', () => {
+  it('сдвигает уровень по шкале и упирается в её края', () => {
+    expect(shiftLevel('A1', 1)).toBe('A2');
+    expect(shiftLevel('B1', -1)).toBe('A2');
+    expect(shiftLevel('A2', 2)).toBe('B2');
+    expect(shiftLevel('A1', 0)).toBe('A1');
+    // За краями шкалы уровень остаётся крайним, а не становится undefined.
+    expect(shiftLevel('A1', -1)).toBe('A1');
+    expect(shiftLevel('A1', -99)).toBe('A1');
+    expect(shiftLevel('C2', 1)).toBe('C2');
+    expect(shiftLevel('C2', 99)).toBe('C2');
   });
 });
 
@@ -417,6 +487,9 @@ describe('maybeAdjustLevel', () => {
   });
 
   it('повышает уровень и пишет историю с source = progress', () => {
+    // В истории уже есть первичная установка, поэтому пересчёт — это именно
+    // изменение уровня: `direction: 'up'` с заполненным `fromLevel`.
+    seedLevelHistory();
     seedLesson('lesson-1', { correct: 10, wrong: 0, completedAt: '2026-09-01T10:00:00.000Z' });
     seedLesson('lesson-2', { correct: 10, wrong: 0, completedAt: '2026-09-02T10:00:00.000Z' });
     seedLesson('lesson-3', { correct: 9, wrong: 1, completedAt: '2026-09-03T10:00:00.000Z' });
@@ -439,7 +512,62 @@ describe('maybeAdjustLevel', () => {
     expect(entry.metrics.lessonsConsidered).toBe(LEVEL_CHANGE_POLICY.windowLessons);
     expect(entry.metrics.exercisesEvaluated).toBe(30);
     expect(entry.metrics.accuracy).toBeCloseTo(29 / 30, 5);
-    expect(countRows('level_history')).toBe(1);
+    expect(countRows('level_history')).toBe(2);
+  });
+
+  it('первой записью истории делает первичную установку, а не повышение', () => {
+    // Ученик не проходил определение уровня и не правил уровень руками: до этого
+    // момента история пуста, и уровень профиля был значением заготовки, а не
+    // измерением. Значит, первая запись — `initial` с пустым `fromLevel`,
+    // как её пишут определение уровня и ручная правка профиля.
+    seedLesson('lesson-1', { correct: 10, completedAt: '2026-09-01T10:00:00.000Z' });
+    seedLesson('lesson-2', { correct: 10, completedAt: '2026-09-02T10:00:00.000Z' });
+    seedLesson('lesson-3', { correct: 10, completedAt: '2026-09-03T10:00:00.000Z' });
+
+    const adjustment = maybeAdjustLevel();
+    const entry = levelHistoryEntrySchema.parse(adjustment.entry);
+
+    expect(entry).toMatchObject({
+      source: 'progress',
+      direction: 'initial',
+      fromLevel: null,
+      toLevel: 'A2',
+    });
+    // Решение о пересчёте остаётся тем же: уровень действительно повышен.
+    expect(adjustment.decision.direction).toBe('up');
+    expect(profileLevel()).toBe('A2');
+
+    const row = getDb().prepare('SELECT direction, from_level FROM level_history').get() as {
+      direction: string;
+      from_level: string | null;
+    };
+
+    expect(row).toEqual({ direction: 'initial', from_level: null });
+  });
+
+  it('считает долю верных ответов по окну, а не по всей истории уроков', () => {
+    // Пять уроков: два самых старых провальные, три свежих отличные. В окно
+    // `windowLessons` попадают только свежие, поэтому уровень растёт.
+    seedLevelHistory();
+    seedLesson('lesson-old-1', { correct: 0, wrong: 10, completedAt: '2026-09-01T10:00:00.000Z' });
+    seedLesson('lesson-old-2', { correct: 0, wrong: 10, completedAt: '2026-09-02T10:00:00.000Z' });
+    seedLesson('lesson-new-1', { correct: 10, completedAt: '2026-09-03T10:00:00.000Z' });
+    seedLesson('lesson-new-2', { correct: 10, completedAt: '2026-09-04T10:00:00.000Z' });
+    seedLesson('lesson-new-3', { correct: 10, completedAt: '2026-09-05T10:00:00.000Z' });
+
+    const adjustment = maybeAdjustLevel();
+
+    expect(LEVEL_CHANGE_POLICY.windowLessons).toBe(3);
+    expect(adjustment.changed).toBe(true);
+    expect(adjustment.entry).toMatchObject({ direction: 'up', toLevel: 'A2' });
+    // Окно — три урока и тридцать попыток, а не пять уроков и пятьдесят попыток.
+    expect(adjustment.decision.metrics).toMatchObject({
+      accuracy: 1,
+      lessonsConsidered: 3,
+      exercisesEvaluated: 30,
+      windowFrom: '2026-09-03T10:00:00.000Z',
+      windowTo: '2026-09-05T10:00:00.000Z',
+    });
   });
 
   it('понижает уровень при низкой доле верных ответов', () => {
@@ -474,13 +602,18 @@ describe('maybeAdjustLevel', () => {
   });
 
   it('снова меняет уровень, когда после паузы накопились новые уроки', () => {
+    // Часы фиксируются: момент записи истории сравнивается с датами уроков,
+    // и прогон на границе суток не должен ничего менять.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-16T12:00:00.000Z'));
+
     seedLesson('lesson-1', { correct: 10, completedAt: '2026-09-01T10:00:00.000Z' });
     seedLesson('lesson-2', { correct: 10, completedAt: '2026-09-02T10:00:00.000Z' });
     seedLesson('lesson-3', { correct: 10, completedAt: '2026-09-03T10:00:00.000Z' });
 
     expect(maybeAdjustLevel().changed).toBe(true);
 
-    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const future = '2026-09-16T13:00:00.000Z';
 
     seedLesson('lesson-4', { correct: 10, completedAt: future });
     seedLesson('lesson-5', { correct: 10, completedAt: future });
@@ -668,10 +801,34 @@ describe('GET /api/progress/summary', () => {
     ]);
   });
 
+  it('разводит долю верных ответов за всё время и за окно последних уроков', async () => {
+    // Старый провальный урок попадает в `accuracyOverall`, но не в окно
+    // `windowLessons`, по которому считается `accuracyRecent`.
+    seedLesson('lesson-old', { correct: 0, wrong: 8, completedAt: '2026-09-01T10:00:00.000Z' });
+    seedLesson('lesson-1', { correct: 3, wrong: 1, completedAt: '2026-09-02T10:00:00.000Z' });
+    seedLesson('lesson-2', { correct: 3, wrong: 1, completedAt: '2026-09-03T10:00:00.000Z' });
+    seedLesson('lesson-3', { correct: 3, wrong: 1, completedAt: '2026-09-04T10:00:00.000Z' });
+
+    const response = await app.inject({ method: 'GET', url: SUMMARY_URL });
+    const summary = getProgressSummaryResponseSchema.parse(response.json());
+
+    expect(summary.exercisesTotal).toBe(20);
+    expect(summary.exercisesCorrect).toBe(9);
+    expect(summary.accuracyOverall).toBeCloseTo(9 / 20, 5);
+    expect(summary.accuracyRecent).toBeCloseTo(0.75, 5);
+    expect(summary.accuracyRecent).not.toBeCloseTo(summary.accuracyOverall, 5);
+  });
+
   it('считает серию занятий по последним дням', async () => {
+    // Часы фиксируются: на прогоне через полночь UTC «сегодня» в тесте и
+    // «сегодня» внутри сервиса разъезжаются, и серия рвётся на ровном месте.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-16T12:00:00.000Z'));
+
     const today = toIsoDate(new Date());
     const yesterday = toIsoDate(Date.now() - 24 * 60 * 60 * 1000);
 
+    expect(today).toBe('2026-09-16');
     seedLesson('lesson-today', { correct: 1, completedAt: `${today}T09:00:00.000Z` });
     seedLesson('lesson-yesterday', { correct: 1, completedAt: `${yesterday}T09:00:00.000Z` });
 
@@ -812,7 +969,9 @@ describe('GET /api/progress/errors', () => {
     expect(page.items.every((item) => item.category === 'grammar')).toBe(true);
     expect(Object.keys(page.countsByCategory).sort()).toEqual([...ERROR_CATEGORIES].sort());
     expect(page.countsByCategory.grammar).toBe(2);
-    expect(page.countsByCategory.fluency).toBe(0);
+    // Категория, которая в фикстуре есть: счётчик по ней не должен обнулиться
+    // из-за фильтра по грамматике (в отличие от `fluency`, которого нет вовсе).
+    expect(page.countsByCategory.vocabulary).toBe(1);
   });
 
   it('счётчики фасетные: свой фильтр category не обнуляет соседние категории', async () => {

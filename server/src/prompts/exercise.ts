@@ -24,11 +24,11 @@ import {
 
 import type { ChatMessage } from '../providers/types.js';
 
+import { listForPrompt } from './format.js';
 import {
   buildTutorSystemPrompt,
   formatExcerpts,
   formatStep,
-  listForPrompt,
   type TutorMaterialExcerpt,
   type TutorPromptContext,
 } from './tutorTurn.js';

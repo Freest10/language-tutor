@@ -32,7 +32,7 @@ import {
   type SubmitPlacementTurnResponse,
 } from '@lt/shared';
 
-import { ApiError, api } from './client';
+import { api, clientValidationError } from './client';
 import { LONG_TIMEOUT_MS } from './config';
 
 /** Путь коллекции сессий (без префикса `/api` — его добавляет клиент). */
@@ -66,21 +66,6 @@ export interface PlacementAnswerInput {
   source?: MessageSource;
   /** Сколько времени ушло на ответ, миллисекунды. */
   durationMs?: number;
-}
-
-/**
- * Отказ клиентской проверки: тело до сервера не дошло.
- *
- * Оформлен как `ApiError` с кодом `validation_error` и `status: 0` — интерфейсу
- * не нужно различать, кто отверг данные, клиент или сервер.
- */
-function clientValidationError(message: string, issues: unknown): ApiError {
-  return new ApiError({
-    code: 'validation_error',
-    message,
-    status: 0,
-    details: { reason: 'client_validation', issues },
-  });
 }
 
 /**

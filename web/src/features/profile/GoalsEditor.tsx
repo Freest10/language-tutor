@@ -32,8 +32,13 @@ export interface GoalsEditorProps {
   values: readonly string[];
   /** Новый список после добавления, удаления или переключения пресета. */
   onChange: (values: readonly string[]) => void;
-  /** Ошибка списка целиком (например, «нужна хотя бы одна цель»). */
-  error?: string | null;
+  /**
+   * Готовый текст ошибки списка целиком («нужна хотя бы одна цель»).
+   *
+   * Это проверка на клиенте, а не отказ запроса: проп `error` во всём
+   * приложении несёт `ApiError`, поэтому готовая строка названа иначе.
+   */
+  errorMessage?: string | null;
   /** Блокирует редактирование — например, на время сохранения. */
   disabled?: boolean;
 }
@@ -57,7 +62,13 @@ const MAX_ITEMS: Record<ListField, number> = {
 };
 
 /** Редактор целей обучения или интересов: чипы, свободный ввод и пресеты. */
-export function GoalsEditor({ field, values, onChange, error, disabled }: GoalsEditorProps) {
+export function GoalsEditor({
+  field,
+  values,
+  onChange,
+  errorMessage = null,
+  disabled,
+}: GoalsEditorProps) {
   const t = useT('profile');
   const [text, setText] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
@@ -68,7 +79,7 @@ export function GoalsEditor({ field, values, onChange, error, disabled }: GoalsE
   const inputId = `lt-profile-${field}-input`;
   const hintId = `lt-profile-${field}-hint`;
   const errorId = `lt-profile-${field}-error`;
-  const message = error ?? localError;
+  const message = errorMessage ?? localError;
 
   /** Добавляет значение в список; `false` — значение отклонено с пояснением. */
   const addValue = (raw: string): boolean => {

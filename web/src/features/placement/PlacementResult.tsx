@@ -10,8 +10,10 @@ import { Link } from 'react-router-dom';
 
 import type { PlacementResult as PlacementResultData } from '@lt/shared';
 
+import type { ApiError } from '../../api/client';
 import { useT } from '../../i18n/useT';
 import { ROUTE_PATHS } from '../../router';
+import { usePlacementErrorMessage } from './usePlacement';
 
 /** Свойства итога определения уровня. */
 export interface PlacementResultProps {
@@ -21,8 +23,8 @@ export interface PlacementResultProps {
   appliedToProfile: boolean;
   /** Идёт запись уровня в профиль. */
   isSaving?: boolean;
-  /** Готовое сообщение об ошибке записи; `null` — ошибки нет. */
-  saveError?: string | null;
+  /** Отказ записи уровня; текст для пользователя собирает сам итог. */
+  saveError?: ApiError | null;
   /** Записать уровень в профиль (повторная попытка). */
   onSaveToProfile: () => void;
   /** Пройти тест заново с первого вопроса. */
@@ -64,6 +66,7 @@ export function PlacementResult({
   onRestart,
 }: PlacementResultProps) {
   const t = useT('placement');
+  const toErrorMessage = usePlacementErrorMessage();
 
   return (
     <section className="lt-card" aria-labelledby="lt-placement-result-title">
@@ -102,7 +105,7 @@ export function PlacementResult({
       {saveError !== null && (
         <div className="lt-banner lt-banner--error" role="alert">
           <p>{t('result.saveFailed')}</p>
-          <p>{saveError}</p>
+          <p>{toErrorMessage(saveError)}</p>
         </div>
       )}
 

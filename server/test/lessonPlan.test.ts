@@ -436,32 +436,41 @@ describe('GET /api/lessons', () => {
 
     const first = await createLesson({ title: 'Первый' });
     const second = await createLesson({ title: 'Второй' });
-
-    await createLesson({ title: 'Третий' });
+    const third = await createLesson({ title: 'Третий' });
 
     getDb().prepare(`UPDATE lessons SET status = 'completed' WHERE id = ?`).run(first.id);
-    // Порядок сортировки задаётся `created_at`: в тесте уроки создаются в одну миллисекунду.
-    getDb()
-      .prepare('UPDATE lessons SET created_at = ? WHERE id = ?')
-      .run('2026-09-01T10:00:00.000Z', second.id);
 
-    const all = await app.inject({ method: 'GET', url: `${LESSONS_URL}?limit=2` });
+    // Порядок задаётся `created_at`, а в тесте все три урока создаются в одну
+    // миллисекунду. Даты расставляются явно и вразнобой с порядком создания:
+    // ожидаемая последовательность не совпадает ни с порядком вставки, ни с
+    // обратным ему, поэтому сортировку нельзя «пройти» случайно.
+    const createdAt = getDb().prepare('UPDATE lessons SET created_at = ? WHERE id = ?');
+
+    createdAt.run('2026-09-02T10:00:00.000Z', first.id);
+    createdAt.run('2026-09-01T10:00:00.000Z', second.id);
+    createdAt.run('2026-09-03T10:00:00.000Z', third.id);
+
+    const all = await app.inject({ method: 'GET', url: LESSONS_URL });
 
     expect(all.statusCode).toBe(200);
+    expect(listLessonsResponseSchema.parse(all.json()).items.map((item) => item.title)).toEqual([
+      'Третий',
+      'Первый',
+      'Второй',
+    ]);
 
-    const page = listLessonsResponseSchema.parse(all.json());
+    const firstPage = await app.inject({ method: 'GET', url: `${LESSONS_URL}?limit=2` });
+    const page = listLessonsResponseSchema.parse(firstPage.json());
 
     expect(page.total).toBe(3);
-    expect(page.items).toHaveLength(2);
     expect(page.hasMore).toBe(true);
-    expect(page.items.at(-1)?.title).not.toBe('Второй');
+    expect(page.items.map((item) => item.title)).toEqual(['Третий', 'Первый']);
 
     const tail = await app.inject({ method: 'GET', url: `${LESSONS_URL}?limit=2&offset=2` });
     const tailPage = listLessonsResponseSchema.parse(tail.json());
 
-    expect(tailPage.items).toHaveLength(1);
     expect(tailPage.hasMore).toBe(false);
-    expect(tailPage.items[0]?.title).toBe('Второй');
+    expect(tailPage.items.map((item) => item.title)).toEqual(['Второй']);
 
     const completed = await app.inject({ method: 'GET', url: `${LESSONS_URL}?status=completed` });
     const completedPage = listLessonsResponseSchema.parse(completed.json());

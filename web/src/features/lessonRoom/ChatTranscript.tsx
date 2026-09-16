@@ -39,8 +39,8 @@ export interface ChatTranscriptProps {
   onSpeak?: (message: LessonMessage) => void;
   /** Прервать озвучивание. */
   onStopSpeaking?: () => void;
-  /** Повторить отправку неподтверждённой реплики; `null` — повторять нечего. */
-  onRetryPending?: (() => void) | null;
+  /** Повторить отправку неподтверждённой реплики; не задан — повторять нечего. */
+  onRetryPending?: () => void;
 }
 
 /** Оформление бейджа роли: ученик, тьютор или служебная реплика. */
@@ -59,7 +59,7 @@ interface TranscriptItemProps {
   isSpeaking?: boolean;
   onSpeak?: (message: LessonMessage) => void;
   onStopSpeaking?: () => void;
-  onRetryPending?: (() => void) | null;
+  onRetryPending?: () => void;
 }
 
 /** Одна реплика: кто сказал, как сказал, что сказал и что в ней исправлено. */
@@ -70,7 +70,7 @@ function TranscriptItem({
   isSpeaking = false,
   onSpeak,
   onStopSpeaking,
-  onRetryPending = null,
+  onRetryPending,
 }: TranscriptItemProps) {
   const t = useT('lessonRoom');
   const isTutor = message.role === 'tutor';
@@ -136,7 +136,7 @@ export function ChatTranscript({
   isSpeaking = false,
   onSpeak,
   onStopSpeaking,
-  onRetryPending = null,
+  onRetryPending,
 }: ChatTranscriptProps) {
   const t = useT('lessonRoom');
   const endRef = useRef<HTMLDivElement | null>(null);

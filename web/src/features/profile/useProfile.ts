@@ -2,8 +2,8 @@
  * Загрузка и сохранение профиля через TanStack Query.
  *
  * Профиль читают и другие разделы (план урока, подбор материалов), поэтому
- * ключ запроса вынесен в константу: первый элемент — namespace фичи (`profile`),
- * как договорено для параллельно разрабатываемых страниц.
+ * ключи запросов вынесены в фабрику `profileQueryKeys`: первый элемент —
+ * namespace фичи (`['profile', ...]`), как и у остальных разделов.
  *
  * Сохранение оптимистичное: интерфейс показывает новое значение сразу, а при
  * отказе сервера кэш возвращается к прежнему профилю — форма при этом
@@ -14,16 +14,24 @@ import {
   useQuery,
   useQueryClient,
   type UseMutationResult,
-  type UseQueryResult,
 } from '@tanstack/react-query';
+import { useCallback } from 'react';
 
 import type { LearnerProfile, UpdateProfileRequest } from '@lt/shared';
 
-import type { ApiError } from '../../api/client';
+import { ApiError } from '../../api/client';
 import { fetchProfile, updateProfile } from '../../api/profile';
 
-/** Ключ запроса профиля: `['profile']`. */
+/** Корень ключей запросов фичи: по нему инвалидируется весь раздел. */
 export const PROFILE_QUERY_KEY = ['profile'] as const;
+
+/** Ключи запросов профиля. */
+export const profileQueryKeys = {
+  /** Весь раздел целиком. */
+  all: PROFILE_QUERY_KEY,
+  /** Профиль ученика; в разделе он один, поэтому ключ совпадает с корнем. */
+  detail: () => PROFILE_QUERY_KEY,
+};
 
 /** Снимок профиля до оптимистичного обновления — к нему откатывается кэш. */
 export interface ProfileMutationContext {
@@ -48,12 +56,43 @@ export function applyProfileChanges(
   };
 }
 
-/** Профиль ученика: состояние загрузки, ошибка и повторный запрос. */
-export function useProfile(): UseQueryResult<LearnerProfile, ApiError> {
-  return useQuery<LearnerProfile, ApiError>({
-    queryKey: PROFILE_QUERY_KEY,
-    queryFn: ({ signal }) => fetchProfile({ signal }),
+/** Профиль ученика и состояние его загрузки. */
+export interface UseProfileResult {
+  /** Профиль с сервера; `null` — ещё не загружен или запрос не удался. */
+  profile: LearnerProfile | null;
+  isLoading: boolean;
+  isFetching: boolean;
+  isError: boolean;
+  error: ApiError | null;
+  refetch: () => void;
+}
+
+/**
+ * Профиль ученика.
+ *
+ * Форма результата — общая для всех хуков данных приложения: плоский DTO
+ * с `isLoading`/`isFetching`/`isError`/`error`/`refetch`, а не сырой
+ * `UseQueryResult`. Иначе одно и то же состояние «идёт первая загрузка»
+ * называлось бы на странице профиля иначе, чем на остальных страницах.
+ */
+export function useProfile(): UseProfileResult {
+  const { data, error, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: profileQueryKeys.detail(),
+    queryFn: ({ signal }) => fetchProfile(signal),
   });
+
+  const refresh = useCallback((): void => {
+    void refetch();
+  }, [refetch]);
+
+  return {
+    profile: data ?? null,
+    isLoading,
+    isFetching,
+    isError,
+    error: error ? ApiError.from(error) : null,
+    refetch: refresh,
+  };
 }
 
 /**
@@ -74,13 +113,13 @@ export function useUpdateProfile(): UseMutationResult<
     mutationFn: (changes) => updateProfile(changes),
     onMutate: async (changes) => {
       // Иначе ответ уже идущего GET перезапишет оптимистичное значение.
-      await queryClient.cancelQueries({ queryKey: PROFILE_QUERY_KEY });
+      await queryClient.cancelQueries({ queryKey: profileQueryKeys.all });
 
-      const previous = queryClient.getQueryData<LearnerProfile>(PROFILE_QUERY_KEY);
+      const previous = queryClient.getQueryData<LearnerProfile>(profileQueryKeys.detail());
 
       if (previous) {
         queryClient.setQueryData<LearnerProfile>(
-          PROFILE_QUERY_KEY,
+          profileQueryKeys.detail(),
           applyProfileChanges(previous, changes),
         );
       }
@@ -89,11 +128,11 @@ export function useUpdateProfile(): UseMutationResult<
     },
     onError: (_error, _changes, context) => {
       if (context?.previous) {
-        queryClient.setQueryData<LearnerProfile>(PROFILE_QUERY_KEY, context.previous);
+        queryClient.setQueryData<LearnerProfile>(profileQueryKeys.detail(), context.previous);
       }
     },
     onSuccess: (profile) => {
-      queryClient.setQueryData<LearnerProfile>(PROFILE_QUERY_KEY, profile);
+      queryClient.setQueryData<LearnerProfile>(profileQueryKeys.detail(), profile);
     },
   });
 }

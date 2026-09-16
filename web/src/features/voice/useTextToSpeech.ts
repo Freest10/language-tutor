@@ -348,7 +348,7 @@ export function useTextToSpeech(options: UseTextToSpeechOptions): UseTextToSpeec
             voice: request.voice ?? settingsRef.current.voice,
             speed: rate,
           },
-          { signal: controller.signal },
+          controller.signal,
         );
 
         if (generation !== generationRef.current) {

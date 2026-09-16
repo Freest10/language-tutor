@@ -22,6 +22,8 @@
  */
 import type { ErrorCategory, LanguageCode, LearnerProfile } from '@lt/shared';
 
+import { accuracyRatio, formatPercent } from '../lib/metrics.js';
+import { truncateForPrompt } from '../prompts/format.js';
 import {
   countErrorsByCategory,
   countLessonsByStatus,
@@ -55,19 +57,14 @@ export interface LearnerContextOptions {
   profile?: LearnerProfile;
 }
 
-/** Обрезает строку по пределу, помечая обрыв многоточием. */
-function truncate(value: string, limit: number): string {
-  return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
-}
-
 /** Список для промпта: элементы через `; `. */
 function joinItems(items: readonly string[]): string {
   return items.join('; ');
 }
 
-/** Доля в процентах. */
-function percent(correct: number, total: number): string {
-  return total === 0 ? 'n/a' : `${String(Math.round((correct / total) * 100))}%`;
+/** Доля верных ответов в процентах; без попыток — `n/a`, а не «0%». */
+function accuracyPercent(correct: number, total: number): string {
+  return total === 0 ? 'n/a' : formatPercent(accuracyRatio(correct, total));
 }
 
 /** Слабые места: категории ошибок с ненулевым счётчиком, самые частые впереди. */
@@ -116,7 +113,7 @@ export function build(options: LearnerContextOptions = {}): string {
 
   lines.push(
     `- Practice: ${String(lessons.completed)} lessons completed, ` +
-      `${String(totals.total)} exercises, accuracy ${percent(totals.correct, totals.total)}`,
+      `${String(totals.total)} exercises, accuracy ${accuracyPercent(totals.correct, totals.total)}`,
   );
 
   if (areas.length > 0) {
@@ -142,7 +139,7 @@ export function build(options: LearnerContextOptions = {}): string {
   let length = 0;
 
   for (const line of lines) {
-    const capped = truncate(line, MAX_LINE_CHARS);
+    const capped = truncateForPrompt(line, MAX_LINE_CHARS);
     const addition = block.length === 0 ? capped.length : capped.length + 1;
 
     if (length + addition > maxChars) {

@@ -6,8 +6,8 @@
  * а не доступность бэкенда. Тело `PUT /api/profile` проверяется целиком —
  * важно, что уходит частичное обновление ровно с изменёнными полями.
  */
-import { QueryClient } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { cleanup, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +25,9 @@ import {
 } from '@lt/shared';
 
 import { App } from '../src/App';
+import { ApiError } from '../src/api/client';
+import { useProfile } from '../src/features/profile/useProfile';
+import { useProgressSummary } from '../src/features/progress/useProgress';
 import { i18n, LOCALE_STORAGE_KEY } from '../src/i18n';
 import { routes } from '../src/router';
 
@@ -228,6 +231,59 @@ describe('состояния данных профиля', () => {
     expect(await screen.findByText(i18n.t('profile:states.loadFailed'))).toBeInTheDocument();
     expect(screen.getByText(i18n.t('errors.byCode.not_configured'))).toBeInTheDocument();
     expect(screen.getByRole('button', { name: i18n.t('actions.retry') })).toBeInTheDocument();
+  });
+});
+
+describe('контракт хука профиля', () => {
+  /** Поднимает хук в клиенте запросов без повторов. */
+  function renderDataHook<T>(hook: () => T) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    return renderHook(hook, {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      ),
+    });
+  }
+
+  it('отдаёт тот же плоский DTO, что и остальные хуки данных', async () => {
+    const profile = renderDataHook(() => useProfile());
+    const progress = renderDataHook(() => useProgressSummary());
+
+    await waitFor(() => {
+      expect(profile.result.current.profile).not.toBeNull();
+    });
+
+    // Сырой `UseQueryResult` здесь означал бы `isPending` и `.data` вместо
+    // `isLoading` и именованного поля — на одной странице из восьми.
+    expect(Object.keys(profile.result.current).sort()).toEqual([
+      'error',
+      'isError',
+      'isFetching',
+      'isLoading',
+      'profile',
+      'refetch',
+    ]);
+    expect(Object.keys(profile.result.current).sort()).toEqual(
+      Object.keys(progress.result.current)
+        .map((key) => (key === 'summary' ? 'profile' : key))
+        .sort(),
+    );
+    expect(typeof profile.result.current.refetch).toBe('function');
+  });
+
+  it('отдаёт отказ как `ApiError`, а не как сырое исключение', async () => {
+    getProfileResponse = () => jsonResponse(NOT_CONFIGURED_BODY, 501);
+
+    const { result } = renderDataHook(() => useProfile());
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+
+    expect(result.current.error).toBeInstanceOf(ApiError);
+    expect(result.current.error?.code).toBe('not_configured');
+    expect(result.current.profile).toBeNull();
   });
 });
 

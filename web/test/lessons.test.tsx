@@ -28,6 +28,7 @@ import {
 
 import { App } from '../src/App';
 import { i18n } from '../src/i18n';
+import { createQueryClient } from '../src/lib/queryClient';
 import { lessonPlanPath, lessonRoomPath, routes } from '../src/router';
 
 /** Конфигурация сервера: языковая модель настроена. */
@@ -188,11 +189,14 @@ function bodyOf<T>(record: FetchRecord | undefined): T {
   return JSON.parse(record.body) as T;
 }
 
+/** Запросы по методу и пути. */
+function callsTo(method: string, path: string): FetchRecord[] {
+  return calls.filter((call) => call.method === method && call.path === `${API_PREFIX}${path}`);
+}
+
 /** Запрос по методу и пути; последний, если их было несколько. */
 function lastCall(method: string, path: string): FetchRecord | undefined {
-  return calls
-    .filter((call) => call.method === method && call.path === `${API_PREFIX}${path}`)
-    .at(-1);
+  return callsTo(method, path).at(-1);
 }
 
 /** Обещание, которое тест разрешает сам: имитация долгого ответа модели. */
@@ -205,9 +209,17 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
-/** Поднимает приложение на нужном адресе, без истории браузера. */
-function renderApp(path: string) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+/**
+ * Поднимает приложение на нужном адресе, без истории браузера.
+ *
+ * @param path начальный адрес.
+ * @param queryClient клиент запросов; по умолчанию — без повторов и без
+ *   времени свежести, чтобы тест не зависел от таймингов кэша.
+ */
+function renderApp(
+  path: string,
+  queryClient: QueryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });
 
   return {
@@ -370,6 +382,27 @@ describe('создание урока', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Talking about the news' }),
     ).toBeInTheDocument();
+  });
+
+  it('не перечитывает только что созданный урок при открытии плана', async () => {
+    stubCreate(() => jsonResponse(CREATED, 201));
+
+    // Клиент приложения, а не «без кэша»: именно на нём видно лишний запрос.
+    const { user } = renderApp('/lessons', createQueryClient());
+
+    await fillForm(user);
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: 'Talking about the news' }),
+    ).toBeInTheDocument();
+
+    // Урок пришёл в ответе на создание и лежит в кэше целиком: страница плана
+    // обязана открыться без `GET /api/lessons/:id`. Инвалидация всего namespace
+    // `['lessons']` пометила бы и его — и запрос ушёл бы при монтировании.
+    expect(callsTo('GET', '/lessons/l-10')).toHaveLength(0);
+    // Список при этом перечитывается: в нём появился новый урок.
+    expect(callsTo('GET', '/lessons').length).toBeGreaterThan(1);
   });
 
   it('пока модель думает, показывает ожидание и блокирует повторную отправку', async () => {

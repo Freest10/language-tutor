@@ -23,6 +23,7 @@ import {
 } from './useLessons';
 
 import { LESSON_FEEDBACK_MAX_LENGTH } from '../../api/lessons';
+import { LoadingBlock } from '../../components/LoadingBlock';
 import { useT } from '../../i18n/useT';
 import { lessonRoomPath } from '../../router';
 
@@ -128,7 +129,7 @@ export function LessonPlanView({
 }: LessonPlanViewProps) {
   const t = useT('lessons');
   const toErrorMessage = useLessonErrorMessage();
-  const { formatDate } = useLessonFormatters();
+  const { formatDateTime } = useLessonFormatters();
   const statusText = useLessonStatusText();
   const status = statusText(lesson.status);
   const baseId = useId();
@@ -189,7 +190,7 @@ export function LessonPlanView({
           <dd>{t('plan.fields.materialsValue', { count: lesson.materialIds.length })}</dd>
 
           <dt>{t('plan.fields.createdAt')}</dt>
-          <dd>{formatDate(lesson.createdAt)}</dd>
+          <dd>{formatDateTime(lesson.createdAt)}</dd>
         </dl>
 
         {lesson.goals.length > 0 && (
@@ -284,21 +285,12 @@ export function LessonPlanView({
           )}
 
           {isRegenerating && (
-            <div aria-busy="true" style={{ marginBottom: 'var(--lt-space-md)' }}>
-              <p role="status" style={{ marginTop: 0 }}>
-                {t('plan.regenerate.pending.title')}
-              </p>
+            <LoadingBlock label={t('plan.regenerate.pending.title')}>
               <p className="lt-status">{t('plan.regenerate.pending.description')}</p>
               {model && (
                 <p className="lt-status">{t('plan.regenerate.pending.model', { model })}</p>
               )}
-              <p
-                className="lt-skeleton"
-                aria-hidden="true"
-                style={{ height: '1rem', marginBottom: 'var(--lt-space-sm)' }}
-              />
-              <p className="lt-skeleton" aria-hidden="true" style={{ height: '1rem', margin: 0 }} />
-            </div>
+            </LoadingBlock>
           )}
 
           {regenerateError !== null && regenerateError !== undefined && (

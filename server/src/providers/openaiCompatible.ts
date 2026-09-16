@@ -110,6 +110,25 @@ export function joinUrl(baseUrl: string, path: string): string {
   return `${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 }
 
+/**
+ * Адрес для лога: только схема, хост и путь.
+ *
+ * `LLM_BASE_URL` задаёт пользователь, и ключ доступа нередко живёт прямо в адресе —
+ * в учётных данных (`https://user:sk-…@host`) или в строке запроса. Маскирование
+ * текста ошибки такой ключ не ловит, а строка `warn` видна при `LOG_LEVEL=info`
+ * по умолчанию, поэтому адрес урезается до безопасной части.
+ */
+export function logUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    // Неразбираемый адрес в лог не попадает вовсе: в нём может быть что угодно.
+    return '<invalid url>';
+  }
+}
+
 /** Клиент OpenAI-совместимого API: таймаут, повторы, единый разбор ошибок. */
 export class OpenAiCompatibleClient {
   /** Базовый URL API. */
@@ -221,7 +240,7 @@ export class OpenAiCompatibleClient {
           this.logger?.debug(
             {
               target: this.target,
-              url,
+              url: logUrl(url),
               status: response.status,
               attempt,
               durationMs: Date.now() - startedAt,
@@ -251,7 +270,7 @@ export class OpenAiCompatibleClient {
       this.logger?.warn(
         {
           target: this.target,
-          url,
+          url: logUrl(url),
           attempt,
           kind: failure.kind,
           status: failure.status,

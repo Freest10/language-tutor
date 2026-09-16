@@ -8,6 +8,8 @@
  *
  * Соглашение о ключах: первый элемент — namespace фичи (`['lessons', ...]`),
  * поэтому инвалидация по `LESSONS_QUERY_KEY` задевает и список, и просмотр.
+ * Мутации инвалидируют именно `lessonsQueryKeys.lists()`: корень накрыл бы и
+ * кэш урока, который они только что заполнили ответом сервера.
  * Материалы читаются под тем же корнем (`['lessons', 'materials', ...]`):
  * раздел материалов — соседний пакет со своим кэшем, пересекаться с ним нельзя.
  */
@@ -48,6 +50,7 @@ import {
 } from '../../api/lessons';
 import { useCapabilities } from '../../context/CapabilitiesProvider';
 import { useApiErrorMessage, useLocale, useT } from '../../i18n/useT';
+import { formatDate, formatDateTime } from '../../lib/format';
 
 /** Корень ключей запросов фичи: по нему инвалидируется весь раздел. */
 export const LESSONS_QUERY_KEY = ['lessons'] as const;
@@ -56,6 +59,8 @@ export const LESSONS_QUERY_KEY = ['lessons'] as const;
 export const lessonsQueryKeys = {
   /** Весь раздел целиком. */
   all: LESSONS_QUERY_KEY,
+  /** Все страницы списка: по этому префиксу список перечитывается целиком. */
+  lists: () => [...LESSONS_QUERY_KEY, 'list'] as const,
   /** Страница списка с конкретным набором фильтров. */
   list: (params: ListLessonsParams) => [...LESSONS_QUERY_KEY, 'list', params] as const,
   /** Урок вместе с заданиями и попытками. */
@@ -192,7 +197,10 @@ export function useCreateLesson(): UseMutationResult<Lesson, Error, CreateLesson
         exercises: [],
         attempts: [],
       } satisfies GetLessonResponse);
-      void queryClient.invalidateQueries({ queryKey: LESSONS_QUERY_KEY });
+      // Именно список, а не весь namespace: префикс `['lessons']` накрыл бы
+      // и только что положенный `['lessons', 'detail', id]`, и запрос ушёл бы
+      // снова — ровно тот, которого мы избегали.
+      void queryClient.invalidateQueries({ queryKey: lessonsQueryKeys.lists() });
     },
   });
 }
@@ -219,7 +227,9 @@ export function useRegenerateLessonPlan(
           attempts: previous?.attempts ?? [],
         }),
       );
-      void queryClient.invalidateQueries({ queryKey: LESSONS_QUERY_KEY });
+      // Только список: инвалидация всего namespace выбросила бы свежий план
+      // из кэша урока и заставила бы перечитать его с сервера.
+      void queryClient.invalidateQueries({ queryKey: lessonsQueryKeys.lists() });
     },
   });
 }
@@ -464,20 +474,12 @@ export function useLessonMaterialStatusText(): (material: Material) => LessonMat
   );
 }
 
-/** Дата и время в формате языка интерфейса. */
-export function formatLessonDate(isoDate: string, locale: string): string {
-  const date = new Date(isoDate);
-
-  if (Number.isNaN(date.getTime())) {
-    return isoDate;
-  }
-
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
 /** Форматирование дат по языку интерфейса. */
 export interface LessonFormatters {
+  /** Только дата. */
   formatDate: (isoDate: string) => string;
+  /** Дата и время: у урока важно, в котором часу он шёл. */
+  formatDateTime: (isoDate: string) => string;
 }
 
 /** Форматирование дат по текущему языку интерфейса. */
@@ -485,7 +487,10 @@ export function useLessonFormatters(): LessonFormatters {
   const { locale } = useLocale();
 
   return useMemo(
-    () => ({ formatDate: (isoDate: string) => formatLessonDate(isoDate, locale) }),
+    () => ({
+      formatDate: (isoDate: string) => formatDate(isoDate, locale),
+      formatDateTime: (isoDate: string) => formatDateTime(isoDate, locale),
+    }),
     [locale],
   );
 }

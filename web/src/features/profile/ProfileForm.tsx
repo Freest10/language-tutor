@@ -31,8 +31,9 @@ import {
 import { GoalsEditor } from './GoalsEditor';
 import { LevelBadge } from './LevelBadge';
 
+import type { ApiError } from '../../api/client';
 import { UI_LOCALES, isUiLocale, readStoredLocale, toUiLocale } from '../../i18n';
-import { useLocale, useT } from '../../i18n/useT';
+import { useApiErrorMessage, useLocale, useT } from '../../i18n/useT';
 import { ROUTE_PATHS } from '../../router';
 
 /** Свойства формы профиля. */
@@ -45,8 +46,8 @@ export interface ProfileFormProps {
   isSaving?: boolean;
   /** Последнее сохранение прошло успешно — показываем подтверждение. */
   isSaved?: boolean;
-  /** Готовое сообщение об ошибке сохранения; `null` — ошибки нет. */
-  saveError?: string | null;
+  /** Отказ сохранения; текст для пользователя собирает сама форма. */
+  saveError?: ApiError | null;
   /** Отправка изменённых полей профиля. */
   onSave: (changes: UpdateProfileRequest) => void;
 }
@@ -234,6 +235,7 @@ export function ProfileForm({
   onSave,
 }: ProfileFormProps) {
   const t = useT('profile');
+  const toErrorMessage = useApiErrorMessage();
   const { locale, setLocale } = useLocale();
   const [draft, setDraft] = useState<ProfileDraft>(() => toDraft(profile));
   const [syncedProfile, setSyncedProfile] = useState(profile);
@@ -414,7 +416,7 @@ export function ProfileForm({
           field="goals"
           values={draft.goals}
           disabled={isSaving}
-          error={errors.goals ? t(errors.goals.key, errors.goals.params) : null}
+          errorMessage={errors.goals ? t(errors.goals.key, errors.goals.params) : null}
           onChange={(goals) => {
             updateDraft({ goals });
           }}
@@ -427,7 +429,7 @@ export function ProfileForm({
           field="interests"
           values={draft.interests}
           disabled={isSaving}
-          error={errors.interests ? t(errors.interests.key, errors.interests.params) : null}
+          errorMessage={errors.interests ? t(errors.interests.key, errors.interests.params) : null}
           onChange={(interests) => {
             updateDraft({ interests });
           }}
@@ -482,7 +484,7 @@ export function ProfileForm({
         {saveError !== null && saveError !== undefined && (
           <div className="lt-banner lt-banner--error" role="alert">
             <p>{t('form.saveFailed')}</p>
-            <p>{saveError}</p>
+            <p>{toErrorMessage(saveError)}</p>
           </div>
         )}
       </div>

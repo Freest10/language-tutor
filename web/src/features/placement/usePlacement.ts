@@ -38,10 +38,16 @@ import {
   type PlacementAnswerInput,
 } from '../../api/placement';
 import { useApiErrorMessage, useT } from '../../i18n/useT';
-import { PROFILE_QUERY_KEY } from '../profile/useProfile';
+import {
+  PLACEMENT_SESSION_STORAGE_KEY,
+  readStoredValue,
+  removeStoredValue,
+  writeStoredValue,
+} from '../../lib/storage';
+import { profileQueryKeys } from '../profile/useProfile';
 
 /** Ключ localStorage с идентификатором начатой сессии. */
-export const PLACEMENT_SESSION_STORAGE_KEY = 'lt.placementSessionId';
+export { PLACEMENT_SESSION_STORAGE_KEY };
 
 /** Корень ключей запросов фичи: по нему инвалидируется весь мастер. */
 export const PLACEMENT_QUERY_KEY = ['placement'] as const;
@@ -56,32 +62,17 @@ export const placementQueryKeys = {
 
 /** Идентификатор начатой сессии; `null` — начатого теста нет. */
 export function readStoredPlacementSessionId(): string | null {
-  try {
-    const stored = window.localStorage.getItem(PLACEMENT_SESSION_STORAGE_KEY);
-
-    return stored && stored.length > 0 ? stored : null;
-  } catch {
-    // Приватный режим или отключённое хранилище: работаем без восстановления.
-    return null;
-  }
+  return readStoredValue(PLACEMENT_SESSION_STORAGE_KEY);
 }
 
 /** Запоминает сессию, чтобы тест пережил перезагрузку страницы. */
 export function storePlacementSessionId(sessionId: string): void {
-  try {
-    window.localStorage.setItem(PLACEMENT_SESSION_STORAGE_KEY, sessionId);
-  } catch {
-    // См. `readStoredPlacementSessionId`: без хранилища тест всё равно работает.
-  }
+  writeStoredValue(PLACEMENT_SESSION_STORAGE_KEY, sessionId);
 }
 
 /** Забывает сессию: тест пройден заново или сервер её не знает. */
 export function clearStoredPlacementSessionId(): void {
-  try {
-    window.localStorage.removeItem(PLACEMENT_SESSION_STORAGE_KEY);
-  } catch {
-    // См. `readStoredPlacementSessionId`.
-  }
+  removeStoredValue(PLACEMENT_SESSION_STORAGE_KEY);
 }
 
 /** Как получен ответ: сведения, которые уходят вместе с ним на сервер. */
@@ -243,8 +234,8 @@ export function usePlacement(): UsePlacementResult {
 
       if (response.profile) {
         // Уровень в профиле изменился: страница профиля должна это увидеть.
-        queryClient.setQueryData(PROFILE_QUERY_KEY, response.profile);
-        void queryClient.invalidateQueries({ queryKey: PROFILE_QUERY_KEY });
+        queryClient.setQueryData(profileQueryKeys.detail(), response.profile);
+        void queryClient.invalidateQueries({ queryKey: profileQueryKeys.all });
       }
     },
     onError: (error) => {

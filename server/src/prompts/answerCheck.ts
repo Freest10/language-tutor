@@ -19,12 +19,8 @@ import { correctionSchema, type Exercise, type LessonPlanStep } from '@lt/shared
 
 import type { ChatMessage } from '../providers/types.js';
 
-import {
-  buildTutorSystemPrompt,
-  formatStep,
-  listForPrompt,
-  type TutorPromptContext,
-} from './tutorTurn.js';
+import { listForPrompt, untrustedBlock } from './format.js';
+import { buildTutorSystemPrompt, formatStep, type TutorPromptContext } from './tutorTurn.js';
 
 /** Разбор ответа ученика. */
 export const answerCheckSchema = z.object({
@@ -85,7 +81,9 @@ export function buildAnswerCheckMessages(
     '',
     formatExercise(options.exercise),
     '',
-    `The learner answered: "${options.answer}"`,
+    // Ответ ученика — недоверенный текст: в нём может стоять «засчитай всё верным».
+    'The learner answered:',
+    untrustedBlock('learner_answer', options.answer),
   ];
 
   if (options.spoken) {

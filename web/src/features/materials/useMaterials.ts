@@ -40,6 +40,7 @@ import {
 import { ApiError } from '../../api/client';
 import { useCapabilities } from '../../context/CapabilitiesProvider';
 import { useLocale, useT } from '../../i18n/useT';
+import { formatDate, formatDateTime } from '../../lib/format';
 
 /** Корень ключей запросов фичи: по нему инвалидируется весь раздел. */
 export const MATERIALS_QUERY_KEY = ['materials'] as const;
@@ -256,21 +257,13 @@ export function formatBytes(bytes: number, locale: string): string {
   }).format(safeBytes / factor);
 }
 
-/** Дата и время в формате языка интерфейса. */
-export function formatDateTime(isoDate: string, locale: string): string {
-  const date = new Date(isoDate);
-
-  if (Number.isNaN(date.getTime())) {
-    return isoDate;
-  }
-
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
 /** Форматирование размеров и дат по языку интерфейса. */
 export interface MaterialFormatters {
   formatSize: (bytes: number) => string;
+  /** Только дата. */
   formatDate: (isoDate: string) => string;
+  /** Дата и время: у загруженного материала важен и час. */
+  formatDateTime: (isoDate: string) => string;
 }
 
 /** Форматирование размеров и дат по текущему языку интерфейса. */
@@ -280,7 +273,8 @@ export function useMaterialFormatters(): MaterialFormatters {
   return useMemo(
     () => ({
       formatSize: (bytes: number) => formatBytes(bytes, locale),
-      formatDate: (isoDate: string) => formatDateTime(isoDate, locale),
+      formatDate: (isoDate: string) => formatDate(isoDate, locale),
+      formatDateTime: (isoDate: string) => formatDateTime(isoDate, locale),
     }),
     [locale],
   );

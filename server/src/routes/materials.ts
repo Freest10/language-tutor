@@ -30,6 +30,7 @@ import {
 } from '@lt/shared';
 
 import { badRequest, payloadTooLarge } from '../lib/httpErrors.js';
+import { isFileTooLarge, isMultipartLimit } from '../lib/multipart.js';
 import { parseParams, parseQuery, parseWith } from '../lib/validate.js';
 import {
   createMaterialFromFile,
@@ -40,8 +41,23 @@ import {
   MAX_UPLOAD_BYTES,
 } from '../services/materialService.js';
 
-/** Код ошибки `@fastify/multipart` о превышении предела размера файла. */
-const FILE_TOO_LARGE_CODE = 'FST_REQ_FILE_TOO_LARGE';
+/**
+ * Пределы разбора multipart-запроса.
+ *
+ * Без них один запрос удерживал бы в памяти сколько угодно текстовых полей и
+ * файловых частей: `fileSize` ограничивает каждую часть по отдельности, а не
+ * запрос целиком. Загрузка материала — это ровно один файл и два коротких поля
+ * (`title`, `language`), поэтому пределы заданы по фактической потребности.
+ */
+const UPLOAD_LIMITS = {
+  /** Файл, два поля контракта и запас на служебные части клиента. */
+  parts: 8,
+  files: 1,
+  fields: 6,
+  /** `title` по контракту не длиннее 200 символов. */
+  fieldSize: 4096,
+  fileSize: MAX_UPLOAD_BYTES,
+};
 
 /** Разобранный multipart-запрос: файл части `file` и текстовые поля. */
 interface MultipartUpload {
@@ -51,38 +67,36 @@ interface MultipartUpload {
   fields: Record<string, string>;
 }
 
-/** Ошибка `@fastify/multipart` о слишком большом файле. */
-function isFileTooLarge(error: unknown): boolean {
-  return (error as { code?: unknown }).code === FILE_TOO_LARGE_CODE;
-}
-
 /**
  * Читает части multipart-запроса.
  *
  * Части перебираются подряд, поэтому текстовые поля учитываются независимо от того,
- * идут они до файла или после. Лишние файловые части вычитываются и отбрасываются:
- * непрочитанный поток остановил бы разбор запроса.
+ * идут они до файла или после. Поток каждой части нужно вычитать, иначе разбор
+ * запроса не завершится, — но нецелевые файловые части сливаются в никуда
+ * (`part.file.resume()`), а не буферизуются: иначе один запрос удерживал бы в
+ * памяти сотни мегабайт, которые всё равно будут выброшены.
  */
 async function readUpload(request: FastifyRequest): Promise<MultipartUpload> {
   const fields: Record<string, string> = {};
   let upload: Omit<MultipartUpload, 'fields'> | undefined;
 
   try {
-    for await (const part of request.parts({ limits: { fileSize: MAX_UPLOAD_BYTES } })) {
+    for await (const part of request.parts({ limits: UPLOAD_LIMITS })) {
       if (part.type === 'field') {
         fields[part.fieldname] = String(part.value);
         continue;
       }
 
-      const data = await part.toBuffer();
-
-      if (part.fieldname === MATERIAL_FILE_FIELD_NAME && upload === undefined) {
-        upload = {
-          data,
-          fileName: part.filename === '' ? null : part.filename,
-          mimeType: part.mimetype === '' ? null : part.mimetype,
-        };
+      if (part.fieldname !== MATERIAL_FILE_FIELD_NAME || upload !== undefined) {
+        part.file.resume();
+        continue;
       }
+
+      upload = {
+        data: await part.toBuffer(),
+        fileName: part.filename === '' ? null : part.filename,
+        mimeType: part.mimetype === '' ? null : part.mimetype,
+      };
     }
   } catch (error) {
     if (isFileTooLarge(error)) {
@@ -90,6 +104,13 @@ async function readUpload(request: FastifyRequest): Promise<MultipartUpload> {
         `Файл больше допустимых ${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))} МиБ`,
         { cause: error },
       );
+    }
+
+    if (isMultipartLimit(error)) {
+      throw payloadTooLarge('Запрос не укладывается в пределы разбора multipart', {
+        details: { reason: 'multipart_limits', limits: UPLOAD_LIMITS },
+        cause: error,
+      });
     }
 
     throw error;

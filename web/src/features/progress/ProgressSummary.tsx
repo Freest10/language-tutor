@@ -23,6 +23,7 @@ import {
 
 import { sortedErrorCategories, useProgressFormatters } from './useProgress';
 
+import type { ApiError } from '../../api/client';
 import { useApiErrorMessage, useT } from '../../i18n/useT';
 
 /** Свойства сводки прогресса. */
@@ -31,7 +32,8 @@ export interface ProgressSummaryProps {
   summary: ProgressSummaryData | null;
   isLoading: boolean;
   isError: boolean;
-  error: unknown;
+  /** Отказ запроса; текст для пользователя собирает сама сводка. */
+  error: ApiError | null;
   /** Перечитать сводку: и кнопка «Обновить», и повтор после ошибки. */
   onRetry: () => void;
 }

@@ -182,6 +182,17 @@ describe('обработчик ошибок', () => {
   });
 });
 
+describe('страховка тестов', () => {
+  it('не даёт тесту уйти в сеть без подмены fetch', async () => {
+    // Заглушка ставится в `test/setup/noNetwork.ts` для всех файлов тестов:
+    // забытая подмена `fetch` должна падать с внятным текстом, а не уходить
+    // к настоящему провайдеру.
+    await expect(fetch('http://provider.invalid/v1/chat/completions')).rejects.toThrow(
+      /обратился в сеть/,
+    );
+  });
+});
+
 describe('разбор переменных окружения', () => {
   it('подставляет значения по умолчанию', () => {
     const parsed = parseEnv({});
@@ -196,6 +207,26 @@ describe('разбор переменных окружения', () => {
 
   it('считает пустой DB_PATH незаданным', () => {
     expect(parseEnv({ DB_PATH: '' }).dbPath).toBeUndefined();
+  });
+
+  it('не показывает в сообщении об ошибке учётные данные и query адреса', () => {
+    // Ключ доступа нередко живёт прямо в адресе, а имя переменной `*_BASE_URL`
+    // под шаблон секретов не подходит: сообщение уходит в консоль и в лог.
+    const url = 'https://user:sk-secret-token@proxy.example.com:порт/v1?api_key=sk-another-secret';
+
+    try {
+      parseEnv({ LLM_BASE_URL: url, STT_BASE_URL: url });
+      expect.unreachable('parseEnv обязан бросить EnvValidationError');
+    } catch (error) {
+      const { message } = error as EnvValidationError;
+
+      expect(message).toContain('LLM_BASE_URL');
+      expect(message).not.toContain('sk-secret-token');
+      expect(message).not.toContain('sk-another-secret');
+      expect(message).not.toContain('api_key');
+      // Хост и путь остаются: без них подсказка бесполезна.
+      expect(message).toContain('proxy.example.com');
+    }
   });
 
   it('падает с перечислением проблемных переменных', () => {

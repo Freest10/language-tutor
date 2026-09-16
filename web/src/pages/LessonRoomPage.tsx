@@ -18,6 +18,7 @@
 import { useEffect, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
+import { LoadingBlock } from '../components/LoadingBlock';
 import { ChatTranscript } from '../features/lessonRoom/ChatTranscript';
 import { ExercisePanel } from '../features/lessonRoom/ExercisePanel';
 import { LessonSummary } from '../features/lessonRoom/LessonSummary';
@@ -111,19 +112,7 @@ export function LessonRoomPage() {
         )}
       </div>
 
-      {session.isRestoring && (
-        <div className="lt-card" aria-busy="true">
-          <p className="lt-placeholder" role="status">
-            {t('loading')}
-          </p>
-          <p
-            className="lt-skeleton"
-            aria-hidden="true"
-            style={{ height: '2rem', marginBottom: 'var(--lt-space-sm)' }}
-          />
-          <p className="lt-skeleton" aria-hidden="true" style={{ height: '2rem', margin: 0 }} />
-        </div>
-      )}
+      {session.isRestoring && <LoadingBlock label={t('loading')} card />}
 
       {session.isError && (
         <div className="lt-banner lt-banner--error" role="alert">
@@ -210,7 +199,7 @@ export function LessonRoomPage() {
                 });
               }}
               onStopSpeaking={tts.stop}
-              onRetryPending={failure?.action === 'turn' ? session.retry : null}
+              onRetryPending={failure?.action === 'turn' ? session.retry : undefined}
             />
 
             {isRunning && (
@@ -240,8 +229,8 @@ export function LessonRoomPage() {
                 isSubmitting={session.isAnswering}
                 isSpeaking={tts.isSpeaking}
                 disabled={session.isThinking}
-                error={failure?.action === 'attempt' ? failureMessage : null}
-                onRetry={failure?.action === 'attempt' ? session.retry : null}
+                error={failure?.action === 'attempt' ? failure.error : null}
+                onRetry={failure?.action === 'attempt' ? session.retry : undefined}
                 onStopSpeaking={tts.stop}
                 ttsFailure={tts.failure}
                 onSubmit={(answer, options) => {

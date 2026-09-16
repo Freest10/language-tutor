@@ -5,6 +5,7 @@ import {
   API_PREFIX,
   apiErrorResponseSchema,
   getConfigResponseSchema,
+  MAX_AUDIO_UPLOAD_BYTES,
   MAX_TTS_TEXT_LENGTH,
   STT_AUDIO_FIELD_NAME,
   sttResponseSchema,
@@ -258,6 +259,41 @@ describe('POST /api/voice/stt', () => {
     });
   });
 
+  it('отвечает 413 на запись больше maxAudioUploadBytes', async () => {
+    envState.overrides = STT_ENV;
+
+    const fetchMock: FetchMock = vi.fn(async () => jsonResponse({ text: 'не должно дойти' }));
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { payload, headers } = await multipart({
+      file: {
+        field: STT_AUDIO_FIELD_NAME,
+        bytes: new Uint8Array(MAX_AUDIO_UPLOAD_BYTES + 1),
+        filename: 'speech.webm',
+        type: 'audio/webm',
+      },
+    });
+    const response = await app.inject({
+      method: 'POST',
+      url: `${API_PREFIX}/voice/stt`,
+      payload,
+      headers,
+    });
+
+    expect(response.statusCode).toBe(413);
+
+    const body = apiErrorResponseSchema.parse(response.json());
+
+    expect(body.error.code).toBe('payload_too_large');
+    expect(body.error.details).toMatchObject({
+      reason: 'audio_too_large',
+      maxBytes: MAX_AUDIO_UPLOAD_BYTES,
+    });
+    // Запись к провайдеру не уходит: предел проверяется до обращения к нему.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('отвечает 400 на некорректное текстовое поле', async () => {
     envState.overrides = STT_ENV;
 
@@ -455,6 +491,30 @@ describe('секреты', () => {
     expect(response.statusCode).toBe(200);
     expect(response.body).not.toContain(SECRET_KEYS.llm);
     expect(response.body).not.toContain(SECRET_KEYS.stt);
+  });
+
+  it('не пишет в лог учётные данные и query из адреса провайдера', async () => {
+    // Ключ доступа часто лежит прямо в адресе, а строка лога с адресом видна
+    // при уровне по умолчанию: в лог уходят только схема, хост и путь.
+    envState.overrides = {
+      ...STT_ENV,
+      sttBaseUrl: 'https://user:sk-url-secret@stt.test/v1?token=sk-query-secret',
+    };
+
+    const fetchMock: FetchMock = vi.fn(async () => jsonResponse({ text: 'Guten Morgen' }));
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await postStt();
+
+    expect(response.statusCode).toBe(200);
+
+    const log = logLines.join('');
+
+    expect(log).toContain('https://stt.test/v1');
+    expect(log).not.toContain('sk-url-secret');
+    expect(log).not.toContain('sk-query-secret');
+    expect(log).not.toContain('user:');
   });
 
   it('не показывает ключ ни в ответе об ошибке, ни в логе', async () => {

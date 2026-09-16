@@ -18,36 +18,20 @@
     "hint": "Влияет только на интерфейс; изучаемый язык задаётся в профиле."
   },
   "actions": {
-    "back": "Назад",
     "cancel": "Отмена",
     "close": "Закрыть",
-    "confirm": "Подтвердить",
-    "continue": "Продолжить",
-    "create": "Создать",
     "delete": "Удалить",
-    "edit": "Изменить",
-    "next": "Дальше",
     "refresh": "Обновить",
     "retry": "Повторить",
-    "save": "Сохранить",
-    "search": "Поиск",
-    "start": "Начать",
-    "stop": "Остановить",
-    "upload": "Загрузить"
+    "stop": "Остановить"
   },
   "status": {
-    "loading": "Загрузка…",
-    "saving": "Сохранение…",
-    "saved": "Сохранено",
-    "empty": "Пока ничего нет",
-    "underConstruction": "Раздел ещё не реализован."
+    "loading": "Загрузка…"
   },
   "errors": {
-    "title": "Что-то пошло не так",
     "unknown": "Непредвиденная ошибка.",
     "network": "Сервер недоступен. Проверьте, что он запущен.",
     "timeout": "Сервер не ответил за отведённое время.",
-    "code": "Код ошибки: {{code}}",
     "byCode": {
       "bad_request": "Запрос отклонён как некорректный.",
       "validation_error": "Некоторые значения заполнены неверно.",
@@ -109,10 +93,6 @@
     "words_few": "{{count}} слова",
     "words_many": "{{count}} слов",
     "words_other": "{{count}} слова",
-    "lessons_one": "{{count}} урок",
-    "lessons_few": "{{count}} урока",
-    "lessons_many": "{{count}} уроков",
-    "lessons_other": "{{count}} урока",
     "errors_one": "{{count}} ошибка",
     "errors_few": "{{count}} ошибки",
     "errors_many": "{{count}} ошибок",

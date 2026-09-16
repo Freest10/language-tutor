@@ -16,18 +16,11 @@
  * `getProfileForPrompt()` — единственный способ положить профиль в system-промпт:
  * тьютор обязан подстраиваться под уровень, цели и интересы ученика.
  */
-import { randomUUID } from 'node:crypto';
-
 import {
-  CEFR_LEVELS,
   DEFAULT_CEFR_LEVEL,
   DEFAULT_DAILY_MINUTES,
-  KNOWN_LANGUAGE_CODES,
-  LANGUAGE_LABELS,
   type CefrLevel,
-  type LanguageCode,
   type LearnerProfile,
-  type LevelChangeDirection,
   type LevelChangeMetrics,
   type LevelHistoryEntry,
   type UpdateProfileRequest,
@@ -35,12 +28,11 @@ import {
 
 import { learnerProfileToRow, nowIso, rowToLearnerProfile } from '../db/mappers.js';
 import { PROFILE_ROW_ID } from '../db/rows.js';
-import { badRequest } from '../lib/httpErrors.js';
-import {
-  findLatestLevelHistoryEntry,
-  findProfileRow,
-  saveProfileRow,
-} from '../repositories/profileRepository.js';
+import { assertSupportedLanguages } from '../lib/languages.js';
+import { languageForPrompt, listForPrompt } from '../prompts/format.js';
+import { findProfileRow, saveProfileRow } from '../repositories/profileRepository.js';
+
+import { buildLevelHistoryEntry } from './levelHistory.js';
 
 /**
  * Значения профиля-заготовки. Совпадают со строкой, которую вставляет миграция
@@ -62,14 +54,6 @@ const MANUAL_LEVEL_CONFIDENCE = 0;
 /** Поля запроса, которые содержат код языка. */
 const LANGUAGE_FIELDS = ['learningLanguage', 'interfaceLanguage', 'explanationLanguage'] as const;
 
-/** Языки пресетов: быстрая проверка допустимости кода. */
-const SUPPORTED_LANGUAGE_CODES = new Set<string>(KNOWN_LANGUAGE_CODES);
-
-/** Английские названия языков пресетов для строк промпта. */
-const LANGUAGE_NAMES: Record<string, string | undefined> = Object.fromEntries(
-  KNOWN_LANGUAGE_CODES.map((code) => [code, LANGUAGE_LABELS[code].englishName]),
-);
-
 /** Профиль-заготовка: используется, только если строки профиля в базе нет. */
 function defaultProfile(): LearnerProfile {
   const now = nowIso();
@@ -90,31 +74,6 @@ function defaultProfile(): LearnerProfile {
   };
 }
 
-/** Проверяет, что все переданные языки есть в списке пресетов. */
-function assertSupportedLanguages(input: UpdateProfileRequest): void {
-  for (const field of LANGUAGE_FIELDS) {
-    const value = input[field];
-
-    if (value !== undefined && !SUPPORTED_LANGUAGE_CODES.has(value)) {
-      // Кода `unsupported_language` в `API_ERROR_CODES` нет, поэтому машиночитаемый
-      // признак уходит в `details`, а код ошибки остаётся из контракта.
-      throw badRequest(`Язык «${value}» не поддерживается`, {
-        details: {
-          reason: 'unsupported_language',
-          field,
-          value,
-          supported: [...KNOWN_LANGUAGE_CODES],
-        },
-      });
-    }
-  }
-}
-
-/** Направление изменения уровня по шкале CEFR. */
-function levelDirection(fromLevel: CefrLevel, toLevel: CefrLevel): LevelChangeDirection {
-  return CEFR_LEVELS.indexOf(toLevel) > CEFR_LEVELS.indexOf(fromLevel) ? 'up' : 'down';
-}
-
 /**
  * Метрики ручного изменения уровня. Измерений за ним не стоит, поэтому все счётчики
  * нулевые: `exercisesEvaluated: 0` однозначно говорит, что `accuracy` не вычислялась.
@@ -131,31 +90,26 @@ function manualLevelMetrics(): LevelChangeMetrics {
 }
 
 /**
- * Запись истории для ручной смены уровня. Первая запись в истории считается
- * первичной установкой (`direction: 'initial'`, `fromLevel: null`): до неё уровень
- * профиля — значение заготовки, а не результат измерения.
+ * Запись истории для ручной смены уровня. Первичная установка и её текст —
+ * забота общего сборщика `buildLevelHistoryEntry()`.
  */
 function buildManualLevelChange(
   fromLevel: CefrLevel,
   toLevel: CefrLevel,
   changedAt: string,
 ): LevelHistoryEntry {
-  const isInitial = findLatestLevelHistoryEntry() === undefined;
-
-  return {
-    id: randomUUID(),
-    fromLevel: isInitial ? null : fromLevel,
+  return buildLevelHistoryEntry({
+    fromLevel,
     toLevel,
-    direction: isInitial ? 'initial' : levelDirection(fromLevel, toLevel),
     source: 'manual',
     confidence: MANUAL_LEVEL_CONFIDENCE,
-    reason: isInitial
-      ? `Уровень ${toLevel} задан вручную в профиле`
-      : `Уровень изменён вручную в профиле: ${fromLevel} → ${toLevel}`,
+    reason: (isInitial) =>
+      isInitial
+        ? `Уровень ${toLevel} задан вручную в профиле`
+        : `Уровень изменён вручную в профиле: ${fromLevel} → ${toLevel}`,
     metrics: manualLevelMetrics(),
     changedAt,
-    createdAt: changedAt,
-  };
+  });
 }
 
 /** Профиль ученика. Если строки профиля нет, она создаётся заново из дефолтов. */
@@ -187,7 +141,7 @@ export function getProfile(): LearnerProfile {
  * `onboarding_completed` переводится в 1 (в контракт эта колонка не отдаётся).
  */
 export function updateProfile(input: UpdateProfileRequest): LearnerProfile {
-  assertSupportedLanguages(input);
+  assertSupportedLanguages(input, LANGUAGE_FIELDS);
 
   const current = getProfile();
   const changedAt = nowIso();
@@ -217,18 +171,6 @@ export function updateProfile(input: UpdateProfileRequest): LearnerProfile {
   saveProfileRow(learnerProfileToRow(next, { onboardingCompleted: true }), { levelChange });
 
   return next;
-}
-
-/** Название языка для промпта: `German (de)`, для кода вне пресетов — сам код. */
-function languageForPrompt(code: LanguageCode): string {
-  const name = LANGUAGE_NAMES[code];
-
-  return name === undefined ? code : `${name} (${code})`;
-}
-
-/** Список для промпта: элементы через `; `, пустой — явная пометка. */
-function listForPrompt(items: readonly string[]): string {
-  return items.length === 0 ? 'not specified' : items.join('; ');
 }
 
 /**

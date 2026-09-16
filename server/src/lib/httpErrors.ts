@@ -96,7 +96,7 @@ export function rateLimited(message: string, options?: AppErrorOptions): AppErro
   return new AppError('rate_limited', message, options);
 }
 
-/** 501: возможность не настроена (нет ключа, провайдер `browser`, маршрут-заглушка). */
+/** 501: возможность не настроена (нет ключа, провайдер `browser`). */
 export function notConfigured(message: string, options?: AppErrorOptions): AppError {
   return new AppError('not_configured', message, options);
 }
@@ -114,18 +114,4 @@ export function upstreamError(message: string, options?: AppErrorOptions): AppEr
 /** 500: внутренняя ошибка; клиенту уходит только `message`, без подробностей. */
 export function internalError(message: string, options?: AppErrorOptions): AppError {
   return new AppError('internal_error', message, options);
-}
-
-/**
- * Обработчик маршрута-заглушки: отвечает 501 `not_configured`
- * с пометкой `details.reason = 'not_implemented'`.
- *
- * Фичевый пакет заменяет заглушку настоящим обработчиком в своём файле `src/routes/`.
- */
-export function notImplementedRoute(endpoint: string): () => never {
-  return () => {
-    throw notConfigured(`Эндпоинт ${endpoint} ещё не реализован`, {
-      details: { reason: 'not_implemented', endpoint },
-    });
-  };
 }

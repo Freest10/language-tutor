@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import {
   errorLogEntrySchema,
@@ -229,12 +229,16 @@ describe('строка профиля', () => {
 describe('каскадное удаление', () => {
   let db: Db;
 
-  beforeAll(() => {
+  // Граф пересобирается перед каждым тестом: пока база жила на весь describe и
+  // мутировалась по очереди, проверки зависели от порядка тестов — после
+  // удаления урока проверка «журнал ошибок пережил удаление» стала бы
+  // тривиально истинной просто потому, что удалять было уже нечего.
+  beforeEach(() => {
     db = createMigratedDb();
     seedGraph(db);
   });
 
-  afterAll(() => {
+  afterEach(() => {
     db.close();
   });
 
@@ -256,6 +260,14 @@ describe('каскадное удаление', () => {
   });
 
   it('удаляет шаги, реплики, задания и попытки вместе с уроком', () => {
+    // Урок на месте вместе со всем, что на него ссылается: удаление ниже — это
+    // именно каскад, а не удаление уже пустых таблиц.
+    expect(countRows(db, 'lesson_plan_steps', 'lesson_id = ?', lessonFixture.id)).toBe(1);
+    expect(countRows(db, 'lesson_messages', 'lesson_id = ?', lessonFixture.id)).toBe(1);
+    expect(countRows(db, 'exercises', 'lesson_id = ?', lessonFixture.id)).toBe(1);
+    expect(countRows(db, 'exercise_attempts', 'lesson_id = ?', lessonFixture.id)).toBe(1);
+    expect(countRows(db, 'error_log', 'lesson_id = ?', lessonFixture.id)).toBe(1);
+
     db.prepare(`DELETE FROM lessons WHERE id = ?`).run(lessonFixture.id);
 
     expect(countRows(db, 'lesson_plan_steps', 'lesson_id = ?', lessonFixture.id)).toBe(0);
@@ -267,14 +279,22 @@ describe('каскадное удаление', () => {
   });
 
   it('удаляет вопросы вместе с сессией определения уровня', () => {
+    expect(countRows(db, 'placement_turns', 'session_id = ?', placementSessionFixture.id)).toBe(1);
+
     db.prepare(`DELETE FROM placement_sessions WHERE id = ?`).run(placementSessionFixture.id);
 
     expect(countRows(db, 'placement_turns', 'session_id = ?', placementSessionFixture.id)).toBe(0);
   });
 
   it('не даёт сослаться на несуществующий урок', () => {
+    // Урок называется явно и заведомо отсутствует: раньше проверка держалась на
+    // том, что урок удалил предыдущий тест, и от перестановки тестов ломалась.
     expect(() =>
-      insertRow(db, 'lesson_messages', lessonMessageToRow({ ...messageFixture, id: 'message-2' })),
+      insertRow(
+        db,
+        'lesson_messages',
+        lessonMessageToRow({ ...messageFixture, id: 'message-2', lessonId: 'lesson-которого-нет' }),
+      ),
     ).toThrow();
   });
 });

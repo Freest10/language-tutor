@@ -18,36 +18,20 @@
     "hint": "Affects the interface only; the language you learn is set in the profile."
   },
   "actions": {
-    "back": "Back",
     "cancel": "Cancel",
     "close": "Close",
-    "confirm": "Confirm",
-    "continue": "Continue",
-    "create": "Create",
     "delete": "Delete",
-    "edit": "Edit",
-    "next": "Next",
     "refresh": "Refresh",
     "retry": "Try again",
-    "save": "Save",
-    "search": "Search",
-    "start": "Start",
-    "stop": "Stop",
-    "upload": "Upload"
+    "stop": "Stop"
   },
   "status": {
-    "loading": "Loading…",
-    "saving": "Saving…",
-    "saved": "Saved",
-    "empty": "Nothing here yet",
-    "underConstruction": "This section is not implemented yet."
+    "loading": "Loading…"
   },
   "errors": {
-    "title": "Something went wrong",
     "unknown": "Unexpected error.",
     "network": "The server is unreachable. Check that it is running.",
     "timeout": "The server did not respond in time.",
-    "code": "Error code: {{code}}",
     "byCode": {
       "bad_request": "The request was rejected as malformed.",
       "validation_error": "Some values are filled in incorrectly.",
@@ -105,8 +89,6 @@
     "minutes_other": "{{count}} minutes",
     "words_one": "{{count}} word",
     "words_other": "{{count}} words",
-    "lessons_one": "{{count}} lesson",
-    "lessons_other": "{{count}} lessons",
     "errors_one": "{{count}} error",
     "errors_other": "{{count}} errors"
   }

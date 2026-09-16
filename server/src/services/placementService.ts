@@ -21,9 +21,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  CEFR_LEVELS,
   DEFAULT_CEFR_LEVEL,
-  KNOWN_LANGUAGE_CODES,
   PLACEMENT_DEFAULT_MAX_TURNS,
   PLACEMENT_SKILLS,
   type CefrLevel,
@@ -34,7 +32,6 @@ import {
   type Id,
   type LanguageCode,
   type LearnerProfile,
-  type LevelChangeDirection,
   type LevelHistoryEntry,
   type PlacementResult,
   type PlacementSession,
@@ -45,7 +42,8 @@ import {
 } from '@lt/shared';
 
 import { learnerProfileToRow, nowIso } from '../db/mappers.js';
-import { AppError, badRequest, conflict, notFound } from '../lib/httpErrors.js';
+import { AppError, conflict, notFound } from '../lib/httpErrors.js';
+import { assertSupportedLanguages } from '../lib/languages.js';
 import {
   buildEvaluationMessages,
   buildFirstQuestionMessages,
@@ -68,8 +66,9 @@ import {
   savePlacementProgress,
   updatePlacementSession,
 } from '../repositories/placementRepository.js';
-import { findLatestLevelHistoryEntry, saveProfileRow } from '../repositories/profileRepository.js';
+import { saveProfileRow } from '../repositories/profileRepository.js';
 
+import { buildLevelHistoryEntry } from './levelHistory.js';
 import { getProfile, getProfileForPrompt } from './profileService.js';
 
 /** Температура генерации: тест должен быть предсказуемым, а не разнообразным. */
@@ -81,33 +80,10 @@ const MAX_REASON_LENGTH = 1000;
 /** Поля запроса, которые содержат код языка. */
 const LANGUAGE_FIELDS = ['learningLanguage', 'explanationLanguage'] as const;
 
-/** Языки пресетов: быстрая проверка допустимости кода. */
-const SUPPORTED_LANGUAGE_CODES = new Set<string>(KNOWN_LANGUAGE_CODES);
-
 /** Общие параметры обращения к сервису. */
 export interface PlacementServiceOptions {
   /** Логгер запроса: провайдер пишет в него повторы и тайминги. */
   logger?: ProviderLogger | undefined;
-}
-
-/** Проверяет, что явно переданные языки есть в списке пресетов. */
-function assertSupportedLanguages(input: CreatePlacementSessionRequest): void {
-  for (const field of LANGUAGE_FIELDS) {
-    const value = input[field];
-
-    if (value !== undefined && !SUPPORTED_LANGUAGE_CODES.has(value)) {
-      // Кода `unsupported_language` в `API_ERROR_CODES` нет, поэтому машиночитаемый
-      // признак уходит в `details`, а код ошибки остаётся из контракта.
-      throw badRequest(`Язык «${value}» не поддерживается`, {
-        details: {
-          reason: 'unsupported_language',
-          field,
-          value,
-          supported: [...KNOWN_LANGUAGE_CODES],
-        },
-      });
-    }
-  }
 }
 
 /**
@@ -324,11 +300,6 @@ async function summarize(
   }
 }
 
-/** Направление изменения уровня по шкале CEFR. */
-function levelDirection(fromLevel: CefrLevel, toLevel: CefrLevel): LevelChangeDirection {
-  return CEFR_LEVELS.indexOf(toLevel) > CEFR_LEVELS.indexOf(fromLevel) ? 'up' : 'down';
-}
-
 /** Человекочитаемое обоснование записи истории уровня (A13). */
 function levelChangeReason(result: PlacementResult): string {
   const text =
@@ -339,10 +310,10 @@ function levelChangeReason(result: PlacementResult): string {
 }
 
 /**
- * Запись истории уровня по итогу теста. Первая запись в истории считается
- * первичной установкой (`direction: 'initial'`, `fromLevel: null`). Если уровень
- * лишь подтверждён, истории изменений писать нечего — так же поступает ручное
- * обновление профиля.
+ * Запись истории уровня по итогу теста. Первичная установка (`direction: 'initial'`,
+ * `fromLevel: null`) — забота общего сборщика `buildLevelHistoryEntry()`. Если
+ * уровень лишь подтверждён, истории изменений писать нечего — так же поступает
+ * ручное обновление профиля.
  */
 function buildLevelChange(
   session: PlacementSession,
@@ -350,17 +321,9 @@ function buildLevelChange(
   fromLevel: CefrLevel,
   changedAt: string,
 ): LevelHistoryEntry | undefined {
-  const isInitial = findLatestLevelHistoryEntry() === undefined;
-
-  if (!isInitial && fromLevel === result.level) {
-    return undefined;
-  }
-
-  return {
-    id: randomUUID(),
-    fromLevel: isInitial ? null : fromLevel,
+  const entry = buildLevelHistoryEntry({
+    fromLevel,
     toLevel: result.level,
-    direction: isInitial ? 'initial' : levelDirection(fromLevel, result.level),
     source: 'placement',
     confidence: result.confidence,
     reason: levelChangeReason(result),
@@ -374,8 +337,9 @@ function buildLevelChange(
       windowTo: changedAt,
     },
     changedAt,
-    createdAt: changedAt,
-  };
+  });
+
+  return entry.direction !== 'initial' && fromLevel === result.level ? undefined : entry;
 }
 
 /**
@@ -432,7 +396,7 @@ export async function createPlacementSession(
   input: CreatePlacementSessionRequest,
   options: PlacementServiceOptions = {},
 ): Promise<CreatePlacementSessionResponse> {
-  assertSupportedLanguages(input);
+  assertSupportedLanguages(input, LANGUAGE_FIELDS);
 
   const profile = getProfile();
   const startedAt = nowIso();

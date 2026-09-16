@@ -30,7 +30,7 @@ import {
   type TtsResponse,
 } from '@lt/shared';
 
-import { api, isApiError, type RequestOptions } from './client';
+import { api, isApiError } from './client';
 import { LONG_TIMEOUT_MS } from './config';
 
 /** Путь распознавания речи (без префикса `/api` — его подставляет клиент). */
@@ -38,9 +38,6 @@ export const VOICE_STT_PATH = '/voice/stt';
 
 /** Путь синтеза речи. */
 export const VOICE_TTS_PATH = '/voice/tts';
-
-/** Параметры голосового запроса: схему и таймаут модуль задаёт сам. */
-export type VoiceRequestOptions = Pick<RequestOptions, 'signal'>;
 
 /** Причина, по которой сервер отказался работать: распознавание делает браузер. */
 export const STT_BROWSER_ONLY_REASON = 'stt_browser_only';
@@ -165,7 +162,7 @@ export function buildSttFormData(input: TranscribeAudioInput): FormData {
  */
 export function transcribeAudio(
   input: TranscribeAudioInput,
-  { signal }: VoiceRequestOptions = {},
+  signal?: AbortSignal,
 ): Promise<SttResponse> {
   return api.upload(VOICE_STT_PATH, buildSttFormData(input), {
     schema: sttResponseSchema,
@@ -185,7 +182,19 @@ export interface SynthesizeSpeechInput {
   speed?: number;
 }
 
-/** Обрезает текст до предела `MAX_TTS_TEXT_LENGTH`: длиннее сервер не принимает. */
+/**
+ * Обрезает текст до предела `MAX_TTS_TEXT_LENGTH`: длиннее сервер не принимает.
+ *
+ * Обрезка молчаливая и по той же константе, из которой сервер собирает
+ * `limits.maxTtsTextLength` в `GET /api/config`, — это один и тот же предел
+ * схемы `ttsRequestSchema`. Реплика тьютора сверху ничем не ограничена, поэтому
+ * очень длинный ответ будет озвучен не до конца. Альтернатива — резать реплику
+ * на части и ставить их в очередь `useTextToSpeech.enqueue()`; это изменение
+ * поведения, а не правка ошибки, и здесь оно намеренно не сделано.
+ *
+ * @param text реплика тьютора.
+ * @param maxLength предел длины; по умолчанию — предел схемы.
+ */
 export function clampTtsText(text: string, maxLength: number = MAX_TTS_TEXT_LENGTH): string {
   const trimmed = text.trim();
 
@@ -195,7 +204,7 @@ export function clampTtsText(text: string, maxLength: number = MAX_TTS_TEXT_LENG
 /** `POST /api/voice/tts` — синтез речи на сервере; аудио приходит в base64. */
 export function synthesizeSpeech(
   input: SynthesizeSpeechInput,
-  { signal }: VoiceRequestOptions = {},
+  signal?: AbortSignal,
 ): Promise<TtsResponse> {
   return api.post(
     VOICE_TTS_PATH,

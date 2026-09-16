@@ -11,6 +11,7 @@ import { isMaterialErrorStatus, type Material, type MaterialStatus } from '@lt/s
 
 import { useDeleteMaterial, useMaterialFormatters, useMaterialStatusText } from './useMaterials';
 
+import type { ApiError } from '../../api/client';
 import { useApiErrorMessage, useT } from '../../i18n/useT';
 
 /** Свойства списка материалов. */
@@ -21,7 +22,8 @@ export interface MaterialListProps {
   total: number;
   isLoading: boolean;
   isError: boolean;
-  error: unknown;
+  /** Отказ запроса; текст для пользователя собирает сам список. */
+  error: ApiError | null;
   /** Есть ли материалы за пределами показанной страницы. */
   hasMore: boolean;
   /** Показать следующую страницу списка. */
@@ -131,7 +133,7 @@ function MaterialRow({
   onCancelDelete,
 }: MaterialRowProps) {
   const t = useT('materials');
-  const { formatSize, formatDate } = useMaterialFormatters();
+  const { formatSize, formatDateTime } = useMaterialFormatters();
   const statusText = useMaterialStatusText();
   const status = statusText(material);
   const titleId = useId();
@@ -173,7 +175,7 @@ function MaterialRow({
         </dd>
 
         <dt>{t('list.fields.createdAt')}</dt>
-        <dd>{formatDate(material.createdAt)}</dd>
+        <dd>{formatDateTime(material.createdAt)}</dd>
 
         <dt>{t('list.fields.chunks')}</dt>
         <dd>{t('units.chunks', { count: material.chunkCount })}</dd>

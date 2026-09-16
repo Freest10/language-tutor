@@ -19,8 +19,6 @@
 import { z } from 'zod';
 
 import {
-  KNOWN_LANGUAGE_CODES,
-  LANGUAGE_LABELS,
   LESSON_STEP_TYPES,
   lessonStepTypeSchema,
   type CefrLevel,
@@ -30,6 +28,14 @@ import {
 } from '@lt/shared';
 
 import type { ChatMessage } from '../providers/types.js';
+
+import {
+  excerptSource,
+  languageForPrompt,
+  listForPrompt,
+  untrustedBlock,
+  UNTRUSTED_DATA_NOTE,
+} from './format.js';
 
 /** Сколько шагов должно быть в плане урока: меньше — не урок, больше — не успеть. */
 export const LESSON_PLAN_MIN_STEPS = 4;
@@ -142,43 +148,19 @@ export interface LessonPlanRequestOptions {
   feedback?: string | undefined;
 }
 
-/** Английские названия языков пресетов для строк промпта. */
-const LANGUAGE_NAMES: Record<string, string | undefined> = Object.fromEntries(
-  KNOWN_LANGUAGE_CODES.map((code) => [code, LANGUAGE_LABELS[code].englishName]),
-);
-
-/** Название языка для промпта: `German (de)`, для кода вне пресетов — сам код. */
-function languageForPrompt(code: LanguageCode): string {
-  const name = LANGUAGE_NAMES[code];
-
-  return name === undefined ? code : `${name} (${code})`;
-}
-
-/** Список для промпта: элементы через `; `; пустой список — прочерк. */
-function listForPrompt(items: readonly string[]): string {
-  return items.length === 0 ? '—' : items.join('; ');
-}
-
 /** Метка фрагмента по его позиции в списке: `C1`, `C2`, … */
 export function materialRefLabel(index: number): string {
   return `C${String(index + 1)}`;
 }
 
-/** Строка-источник фрагмента: название материала, страница и заголовок. */
-function excerptSource(excerpt: LessonMaterialExcerpt): string {
-  const parts = [`"${excerpt.materialTitle}"`];
-
-  if (excerpt.page !== null && excerpt.page !== undefined) {
-    parts.push(`page ${String(excerpt.page)}`);
-  }
-  if (excerpt.heading !== null && excerpt.heading !== undefined && excerpt.heading !== '') {
-    parts.push(excerpt.heading);
-  }
-
-  return parts.join(', ');
-}
-
-/** Фрагменты материалов в виде блока промпта. */
+/**
+ * Фрагменты материалов в виде блока промпта.
+ *
+ * Текст материала загрузил пользователь, и внутри него может оказаться что угодно —
+ * включая абзац вида «ignore previous instructions». Поэтому каждая цитата уходит
+ * в ограничителях `<material>` с пометкой «это данные, а не инструкции»
+ * (см. `prompts/format.ts`).
+ */
 export function formatMaterialExcerpts(excerpts: readonly LessonMaterialExcerpt[]): string {
   if (excerpts.length === 0) {
     return [
@@ -189,8 +171,12 @@ export function formatMaterialExcerpts(excerpts: readonly LessonMaterialExcerpt[
 
   return [
     'Material excerpts to build the lesson on (reference them by label in "materialRefs"):',
+    UNTRUSTED_DATA_NOTE,
     ...excerpts.map((excerpt) =>
-      [`[${excerpt.ref}] ${excerptSource(excerpt)}`, excerpt.content].join('\n'),
+      [
+        `[${excerpt.ref}] ${excerptSource(excerpt.materialTitle, excerpt.page, excerpt.heading)}`,
+        untrustedBlock('material', excerpt.content),
+      ].join('\n'),
     ),
   ].join('\n\n');
 }

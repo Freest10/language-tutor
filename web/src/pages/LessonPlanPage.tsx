@@ -9,6 +9,7 @@
  */
 import { Link, useParams } from 'react-router-dom';
 
+import { LoadingBlock } from '../components/LoadingBlock';
 import { LessonPlanView } from '../features/lessons/LessonPlanView';
 import {
   useLesson,
@@ -41,19 +42,7 @@ export function LessonPlanPage() {
         </Link>
       </div>
 
-      {isLoading && (
-        <div className="lt-card" aria-busy="true">
-          <p className="lt-placeholder" role="status">
-            {t('plan.loading')}
-          </p>
-          <p
-            className="lt-skeleton"
-            aria-hidden="true"
-            style={{ height: '2rem', marginBottom: 'var(--lt-space-sm)' }}
-          />
-          <p className="lt-skeleton" aria-hidden="true" style={{ height: '2rem', margin: 0 }} />
-        </div>
-      )}
+      {isLoading && <LoadingBlock label={t('plan.loading')} card />}
 
       {isError && (
         <div className="lt-banner lt-banner--error" role="alert">

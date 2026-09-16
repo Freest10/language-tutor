@@ -104,6 +104,24 @@ export function isApiError(value: unknown): value is ApiError {
   return value instanceof ApiError;
 }
 
+/**
+ * Отказ клиентской проверки: тело до сервера не дошло.
+ *
+ * Оформлен как `ApiError` с кодом `validation_error` и `status: 0` — интерфейсу
+ * не нужно различать, кто отверг данные, клиент или сервер.
+ *
+ * @param message пояснение для журнала; пользователю показывается перевод по коду.
+ * @param issues диагностика схемы (`ZodError.issues`).
+ */
+export function clientValidationError(message: string, issues: unknown): ApiError {
+  return new ApiError({
+    code: 'validation_error',
+    message,
+    status: 0,
+    details: { reason: 'client_validation', issues },
+  });
+}
+
 /** Разборщик ответа: подходит любая Zod-схема из `@lt/shared`. */
 export interface ResponseParser<T> {
   parse: (input: unknown) => T;

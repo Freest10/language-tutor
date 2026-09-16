@@ -33,7 +33,7 @@ import {
   type RegenerateLessonPlanRequest,
 } from '@lt/shared';
 
-import { ApiError, api, isApiError } from './client';
+import { api, clientValidationError, isApiError } from './client';
 import { LONG_TIMEOUT_MS } from './config';
 
 /** Путь коллекции уроков (без префикса `/api` — его добавляет клиент). */
@@ -120,21 +120,6 @@ export function notReadyMaterials(error: unknown): NotReadyMaterial[] {
       chunkCount: typeof item.chunkCount === 'number' ? item.chunkCount : null,
     }))
     .filter((item) => item.id.length > 0);
-}
-
-/**
- * Отказ клиентской проверки: тело до сервера не дошло.
- *
- * Оформлен как `ApiError` с кодом `validation_error` и `status: 0` — интерфейсу
- * не нужно различать, кто отверг данные, клиент или сервер.
- */
-function clientValidationError(message: string, issues: unknown): ApiError {
-  return new ApiError({
-    code: 'validation_error',
-    message,
-    status: 0,
-    details: { reason: 'client_validation', issues },
-  });
 }
 
 /**

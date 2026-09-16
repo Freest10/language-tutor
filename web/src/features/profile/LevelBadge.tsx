@@ -9,6 +9,7 @@
 import type { CefrLevel } from '@lt/shared';
 
 import { useLocale, useT } from '../../i18n/useT';
+import { formatDate, parseIsoDate } from '../../lib/format';
 
 /** Свойства значка уровня. */
 export interface LevelBadgeProps {
@@ -20,17 +21,6 @@ export interface LevelBadgeProps {
   placementCompletedAt?: string | null;
 }
 
-/** Дата в формате языка интерфейса; `null`, если значение не разбирается. */
-function formatDate(value: string, locale: string): string | null {
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'long' }).format(date);
-}
-
 /** Уровень CEFR, его название и происхождение оценки. */
 export function LevelBadge({
   level,
@@ -39,7 +29,11 @@ export function LevelBadge({
 }: LevelBadgeProps) {
   const t = useT('profile');
   const { locale } = useLocale();
-  const placementDate = placementCompletedAt ? formatDate(placementCompletedAt, locale) : null;
+  // Неразбираемую дату не показываем вовсе: для неё есть отдельная формулировка.
+  const placementDate =
+    placementCompletedAt && parseIsoDate(placementCompletedAt)
+      ? formatDate(placementCompletedAt, locale, 'long')
+      : null;
 
   const source = !placementCompletedAt
     ? t('level.sourceManual')

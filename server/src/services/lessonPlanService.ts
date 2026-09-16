@@ -53,7 +53,6 @@ import {
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import type { ProviderLogger } from '../providers/types.js';
 import {
-  findLessonById,
   insertLesson,
   listLessons as selectLessons,
   replaceLessonPlan,
@@ -65,7 +64,8 @@ import {
 import { findMaterialsByIds } from '../repositories/materialRepository.js';
 
 import * as learnerContext from './learnerContext.js';
-import { getChunksForLesson } from './materialService.js';
+import { requireLesson } from './lessonAccess.js';
+import { extractKeywords, getChunksForLesson } from './materialService.js';
 import { getProfile, getProfileForPrompt } from './profileService.js';
 
 /** Температура генерации: план должен быть предсказуемым, а не разнообразным. */
@@ -82,12 +82,6 @@ const MAX_LESSON_MINUTES = 240;
 /** Предел числа шагов в плане из `lessonSchema.plan`. */
 const MAX_PLAN_STEPS = 20;
 
-/** Короткое слово темы в ключевые слова не берём: оно совпадает со всем подряд. */
-const MIN_KEYWORD_LENGTH = 4;
-
-/** Предел числа ключевых слов для отбора фрагментов. */
-const MAX_KEYWORDS = 24;
-
 /** Общие параметры обращения к сервису. */
 export interface LessonPlanServiceOptions {
   /** Логгер запроса: провайдер пишет в него повторы и тайминги. */
@@ -99,17 +93,6 @@ interface PlanMaterials {
   excerpts: LessonMaterialExcerpt[];
   /** Метка промпта (`C1`) → идентификатор фрагмента материала. */
   chunkIdByRef: Map<string, Id>;
-}
-
-/** Урок по идентификатору; 404, если его нет. */
-function requireLesson(id: Id): Lesson {
-  const lesson = findLessonById(id);
-
-  if (lesson === undefined) {
-    throw notFound('Урок не найден', { details: { reason: 'lesson_not_found', lessonId: id } });
-  }
-
-  return lesson;
 }
 
 /**
@@ -152,16 +135,6 @@ function assertMaterialsUsable(materialIds: readonly Id[]): void {
       },
     });
   }
-}
-
-/** Ключевые слова для отбора фрагментов: тема, цели и интересы, без коротких слов. */
-function planKeywords(sources: readonly (string | null | undefined)[]): string[] {
-  const words = sources
-    .filter((source): source is string => typeof source === 'string' && source.length > 0)
-    .flatMap((source) => source.toLowerCase().split(/[^\p{L}\p{N}]+/u))
-    .filter((word) => word.length >= MIN_KEYWORD_LENGTH);
-
-  return [...new Set(words)].slice(0, MAX_KEYWORDS);
 }
 
 /**
@@ -368,7 +341,7 @@ export async function createLesson(
 
   const materials = selectMaterials(
     materialIds,
-    planKeywords([input.topic, ...goals, ...profile.interests]),
+    extractKeywords([input.topic, ...goals, ...profile.interests]),
     options,
   );
   const context = promptContext(profile, { level, durationMinutes });
@@ -505,7 +478,7 @@ export async function regenerateLessonPlan(
   const maxSteps = Math.min(room, Math.max(minSteps, LESSON_PLAN_MAX_STEPS - keptSteps.length));
   const materials = selectMaterials(
     lesson.materialIds,
-    planKeywords([lesson.topic, input.feedback, ...lesson.goals, ...profile.interests]),
+    extractKeywords([lesson.topic, input.feedback, ...lesson.goals, ...profile.interests]),
     options,
   );
   const context = promptContext(profile, {
