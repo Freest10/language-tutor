@@ -14,7 +14,7 @@ import { Link } from 'react-router-dom';
 import type { Lesson, LessonPlanStep, RegenerateLessonPlanRequest } from '@lt/shared';
 
 import {
-  isLlmSetupError,
+  llmHintKey,
   sortLessonPlan,
   useLessonErrorMessage,
   useLessonFormatters,
@@ -149,6 +149,7 @@ export function LessonPlanView({
   // незачем.
   const hasStartedSteps = plan.some((step) => step.status !== 'pending');
   const isCompleted = lesson.status === 'completed';
+  const regenerateHint = llmHintKey(regenerateError);
   const plannedSteps = plan.reduce((sum, step) => sum + step.estimatedMinutes, 0);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -297,7 +298,7 @@ export function LessonPlanView({
             <div className="lt-banner lt-banner--error" role="alert">
               <p className="lt-banner__title">{t('plan.regenerate.errors.failed')}</p>
               <p>{toErrorMessage(regenerateError)}</p>
-              {isLlmSetupError(regenerateError) && <p>{t('errors.setupHint')}</p>}
+              {regenerateHint !== null && <p>{t(regenerateHint)}</p>}
             </div>
           )}
 

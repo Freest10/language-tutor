@@ -448,6 +448,36 @@ describe('создание урока', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  it('на 503 советует запустить модель, а не править конфигурацию', async () => {
+    // Регрессия: на все отказы модели показывалась одна подсказка «задайте в .env
+    // LLM_PROVIDER» — переменной с таким именем в проекте нет вовсе, а при 503
+    // конфигурация обычно в порядке и модель просто не запущена. Пользователь шёл
+    // искать несуществующий ключ вместо того, чтобы поднять Ollama.
+    stubCreate(() => errorResponse('upstream_unavailable', 503));
+
+    const { user } = renderApp('/lessons');
+
+    await fillForm(user);
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(
+      await screen.findByText(i18n.t('lessons:errors.upstreamUnavailable')),
+    ).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('lessons:errors.startHint'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('lessons:errors.setupHint'))).not.toBeInTheDocument();
+  });
+
+  it('ни одна подсказка не отправляет к несуществующей переменной окружения', () => {
+    // Подсказка обязана называть только те переменные, которые есть в .env.example.
+    for (const locale of ['ru', 'en'] as const) {
+      for (const key of ['setupHint', 'startHint', 'retryHint'] as const) {
+        const text = i18n.getFixedT(locale, 'lessons')(`errors.${key}`);
+
+        expect(text).not.toMatch(/LLM_PROVIDER/);
+      }
+    }
+  });
+
   it('на 400 перечисляет материалы, у которых ещё нет текста', async () => {
     stubCreate(() =>
       jsonResponse(

@@ -34,7 +34,7 @@ import {
 import { MaterialPicker } from './MaterialPicker';
 import {
   LESSON_DURATION_OPTIONS,
-  isLlmSetupError,
+  llmHintKey,
   useCreateLesson,
   useLessonErrorMessage,
   useLessonGenerationReadiness,
@@ -91,6 +91,7 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
   const stepText = useLessonStepText();
   const readiness = useLessonGenerationReadiness();
   const create = useCreateLesson();
+  const createHint = llmHintKey(create.error);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
@@ -369,7 +370,7 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
                   </ul>
                 </>
               )}
-              {isLlmSetupError(create.error) && <p>{t('errors.setupHint')}</p>}
+              {createHint !== null && <p>{t(createHint)}</p>}
             </div>
           )}
 

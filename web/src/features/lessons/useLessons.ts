@@ -371,21 +371,36 @@ export function useLessonErrorMessage(): (error: unknown) => string {
   );
 }
 
-/** Нужна ли подсказка про настройку провайдера модели рядом с ошибкой. */
-export function isLlmSetupError(error: unknown): boolean {
-  if (!isApiError(error)) {
-    return false;
+/** Ключ подсказки в namespace `lessons`, которую стоит показать рядом с ошибкой. */
+export type LlmHintKey = 'errors.setupHint' | 'errors.startHint' | 'errors.retryHint';
+
+/**
+ * Какая подсказка нужна рядом с отказом языковой модели.
+ *
+ * Раньше на все три случая показывалась одна подсказка «настройте .env», хотя
+ * действия у них разные: при 501 модель действительно не настроена, при 503
+ * настройки в порядке и модель просто не запущена, при 502 она запущена, но
+ * вернула негодный ответ. Единая подсказка отправляла править конфигурацию
+ * даже тогда, когда конфигурация ни при чём.
+ */
+export function llmHintKey(error: unknown): LlmHintKey | null {
+  if (!isApiError(error) || error.isTimeout || error.isNetworkError) {
+    return null;
   }
 
-  if (error.isTimeout || error.isNetworkError) {
-    return false;
+  if (error.isNotConfigured) {
+    return 'errors.setupHint';
   }
 
-  return (
-    error.isNotConfigured ||
-    error.code === 'upstream_unavailable' ||
-    error.code === 'upstream_error'
-  );
+  if (error.code === 'upstream_unavailable') {
+    return 'errors.startHint';
+  }
+
+  if (error.code === 'upstream_error') {
+    return 'errors.retryHint';
+  }
+
+  return null;
 }
 
 /** Оформление бейджа статуса урока. */
