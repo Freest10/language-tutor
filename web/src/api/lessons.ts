@@ -1,6 +1,6 @@
 /**
  * Обращения к `/api/lessons`: список уроков, создание урока с планом, просмотр
- * урока и пересборка плана.
+ * урока, пересборка плана и удаление урока.
  *
  * Модуль знает только про HTTP и схемы `@lt/shared`; кэш, состояния интерфейса
  * и тексты живут в `features/lessons/useLessons.ts`.
@@ -16,6 +16,7 @@
 import {
   createLessonRequestSchema,
   createLessonResponseSchema,
+  deleteLessonResponseSchema,
   getLessonResponseSchema,
   listLessonsResponseSchema,
   listMaterialsResponseSchema,
@@ -23,6 +24,7 @@ import {
   regenerateLessonPlanRequestSchema,
   regenerateLessonPlanResponseSchema,
   type CreateLessonRequest,
+  type DeleteLessonResponse,
   type GetLessonResponse,
   type LanguageCode,
   type Lesson,
@@ -250,6 +252,24 @@ export function regenerateLessonPlan(
   return api.post(lessonPlanRegeneratePath(lessonId), parseRegenerateLessonPlanRequest(body), {
     schema: regenerateLessonPlanResponseSchema,
     timeoutMs: LONG_TIMEOUT_MS,
+    signal,
+  });
+}
+
+/**
+ * `DELETE /api/lessons/:id` — удаление урока целиком.
+ *
+ * Вместе с уроком сервер удаляет его план, ленту реплик, задания и попытки их
+ * выполнения; словарь и журнал ошибок остаются и лишь теряют ссылку на урок.
+ * Статус урока значения не имеет: удалить можно и черновик, и идущий, и
+ * завершённый. Урока уже нет — 404 `not_found` с `details.reason = 'lesson_not_found'`.
+ */
+export function deleteLesson(
+  lessonId: string,
+  signal?: AbortSignal,
+): Promise<DeleteLessonResponse> {
+  return api.delete(lessonPath(lessonId), {
+    schema: deleteLessonResponseSchema,
     signal,
   });
 }

@@ -22,6 +22,11 @@
  *
  * Если и это не помогло, поднимается `ProviderError` вида `invalid_response`,
  * который маршрут превращает в 502 `upstream_error`.
+ *
+ * Отдельно распознаётся оборванный ответ (`finish_reason: 'length'`): JSON в нём
+ * не дописан не потому, что модель не поняла задачу, а потому, что ответ не
+ * поместился в окно контекста. Ремонтный заход тут бесполезен — он делает
+ * диалог только длиннее, — поэтому такой отказ поднимается сразу и своим видом.
  */
 import { z } from 'zod';
 
@@ -58,6 +63,14 @@ export const DEFAULT_REPAIR_ATTEMPTS = 1;
  * причину за лишним запросом.
  */
 const FORMAT_UNSUPPORTED_STATUSES = new Set([400, 405, 415, 422, 501]);
+
+/**
+ * Причины завершения генерации, означающие «ответ обрезан».
+ *
+ * `length` — общепринятое значение OpenAI-совместимых серверов, `max_tokens`
+ * встречается у отдельных сборок.
+ */
+const TRUNCATED_FINISH_REASONS = new Set(['length', 'max_tokens']);
 
 /** Режимы ответа, от строгого к свободному: следующий пробуется, если сервер не знает текущего. */
 export const STRUCTURED_FORMATS = ['json_schema', 'json_object', 'text'] as const;
@@ -364,6 +377,9 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
     attempts += 1;
 
     let text: string;
+    // Оборван ли ответ — свойство одного захода, а не всего запроса: следующий
+    // (в другом режиме или после ремонта) отвечает заново.
+    let truncated: boolean;
 
     try {
       const result = await provider.chat({
@@ -376,6 +392,7 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
 
       usage = addUsage(usage, result.usage);
       text = result.text;
+      truncated = result.finishReason !== null && TRUNCATED_FINISH_REASONS.has(result.finishReason);
     } catch (error) {
       const fallback: StructuredFormat | null = isFormatUnsupported(error)
         ? nextFormat(format)
@@ -408,6 +425,17 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
     }
 
     lastProblem = parsed.problem;
+
+    // Обрезанный ответ чинить нечем: он не поместился в окно контекста, и
+    // следующий заход, вместе с историей переписки, не поместится тем более.
+    if (truncated) {
+      throw new ProviderError(
+        'llm',
+        'response_truncated',
+        'Модель оборвала ответ: он не поместился в окно контекста',
+        { attempt: attempts, detail: lastRaw.slice(0, 500) },
+      );
+    }
 
     if (repairsLeft <= 0) {
       break;

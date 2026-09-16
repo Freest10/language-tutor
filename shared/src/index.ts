@@ -275,10 +275,12 @@ export {
   listLessonsResponseSchema,
   regenerateLessonPlanRequestSchema,
   regenerateLessonPlanResponseSchema,
+  deleteLessonResponseSchema,
 } from './api/lessons.js';
 export type {
   CreateLessonRequest,
   CreateLessonResponse,
+  DeleteLessonResponse,
   GetLessonResponse,
   LessonParams,
   ListLessonsQuery,

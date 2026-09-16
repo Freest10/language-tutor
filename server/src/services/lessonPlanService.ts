@@ -23,6 +23,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type CreateLessonRequest,
   type CreateLessonResponse,
+  type DeleteLessonResponse,
   type GetLessonResponse,
   type Id,
   type LearnerProfile,
@@ -53,6 +54,7 @@ import {
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import type { ProviderLogger } from '../providers/types.js';
 import {
+  deleteLessonById,
   findCoveredChunkIds,
   insertLesson,
   listLessons as selectLessons,
@@ -439,6 +441,24 @@ export function getLesson(id: Id): GetLessonResponse {
     exercises: listLessonExercises(id),
     attempts: listLessonAttempts(id),
   };
+}
+
+/**
+ * Удаляет урок вместе с его планом, репликами, заданиями и попытками.
+ *
+ * Словарь и журнал ошибок остаются: связь с уроком гасится в `NULL`, потому что
+ * выученное слово и разобранная ошибка — это результат занятий, а не сам урок.
+ *
+ * Отдельное следствие, о котором клиент обязан предупредить пользователя:
+ * фрагменты материала, отработанные в этом уроке, снова станут непройденными —
+ * признак «пройдено» выводится из завершённых шагов, а их больше нет.
+ */
+export function deleteLesson(id: Id): DeleteLessonResponse {
+  // requireLesson даёт 404 с тем же телом, что и остальные эндпоинты урока.
+  requireLesson(id);
+  deleteLessonById(id);
+
+  return { ok: true };
 }
 
 /** Шаг, к которому уже приступили: такой шаг — часть истории урока, а не заготовка. */

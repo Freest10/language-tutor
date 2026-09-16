@@ -167,6 +167,32 @@ export interface LessonPlanRequestOptions {
   feedback?: string | undefined;
 }
 
+/**
+ * Напоминание после цитат: урок строится на материале.
+ *
+ * Цели профиля («научиться общаться на повседневные темы») и загруженный учебник
+ * тянут план в разные стороны, и без явного разрешения этого спора модель
+ * выбирает цели: они короче, ближе к началу промпта и не требуют читать цитаты.
+ */
+function materialClosingNote(hasGoals: boolean): string {
+  const lines = [
+    'This lesson is about the material above, not about anything else:',
+    '- the topic, the target items and every example come from the excerpts;',
+    '- each step that works with the material names its labels in "materialRefs";',
+    '- "targetItems" are words and phrases of the target language as they appear',
+    '  in the excerpts — never their translation into the explanation language.',
+  ];
+
+  if (hasGoals) {
+    lines.push(
+      'The learner goals say how to work with this material (what to practise),',
+      'not what to replace it with.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
 /** Метка фрагмента по его позиции в списке: `C1`, `C2`, … */
 export function materialRefLabel(index: number): string {
   return `C${String(index + 1)}`;
@@ -282,10 +308,16 @@ export function buildLessonPlanMessages(
     );
   }
 
+  const hasExcerpts = options.excerpts.length > 0;
+  const topic = options.topic === null || options.topic === undefined ? '' : options.topic;
+
   instructions.push(
     '',
     `Lesson goals: ${listForPrompt(options.goals)}`,
-    `Topic: ${options.topic === null || options.topic === undefined || options.topic === '' ? 'choose one that fits the goals and the interests' : options.topic}`,
+    // Без материалов тему выбирают цели профиля, с материалами — сам материал.
+    // Обратный порядок означал урок про «повседневное общение» поверх учебника,
+    // который ученик только что загрузил: цитаты в промпте есть, а урок не о них.
+    `Topic: ${topic !== '' ? topic : hasExcerpts ? 'derive it from the material excerpts below — that is what the learner asked to work through' : 'choose one that fits the goals and the interests'}`,
   );
 
   if (options.focus !== undefined && options.focus.length > 0) {
@@ -302,6 +334,13 @@ export function buildLessonPlanMessages(
     '',
     formatMaterialExcerpts(options.excerpts, { allCovered: options.materialAllCovered }),
   );
+
+  if (hasExcerpts) {
+    // Напоминание идёт последним: модель лучше всего держится того, что стоит в
+    // конце промпта, а правило «урок строится на материале» — единственное, ради
+    // которого ученик этот материал и загружал.
+    instructions.push('', materialClosingNote(options.goals.length > 0));
+  }
 
   return [
     { role: 'system', content: buildLessonPlanSystemPrompt(context) },

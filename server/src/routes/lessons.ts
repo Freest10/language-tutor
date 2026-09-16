@@ -17,6 +17,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import {
   createLessonRequestSchema,
   createLessonResponseSchema,
+  deleteLessonResponseSchema,
   getLessonResponseSchema,
   lessonParamsSchema,
   listLessonsQuerySchema,
@@ -24,6 +25,7 @@ import {
   regenerateLessonPlanRequestSchema,
   regenerateLessonPlanResponseSchema,
   type CreateLessonResponse,
+  type DeleteLessonResponse,
   type GetLessonResponse,
   type ListLessonsResponse,
   type RegenerateLessonPlanResponse,
@@ -33,6 +35,7 @@ import { parseBody, parseParams, parseQuery } from '../lib/validate.js';
 import { providerErrorToAppError } from '../providers/types.js';
 import {
   createLesson,
+  deleteLesson,
   getLesson,
   listLessons,
   regenerateLessonPlan,
@@ -68,6 +71,12 @@ export const lessonsRoutes: FastifyPluginAsync = async (app) => {
     '/lessons/:id',
     { schema: { response: { 200: getLessonResponseSchema } } },
     (request): GetLessonResponse => getLesson(parseParams(request, lessonParamsSchema).id),
+  );
+
+  app.delete(
+    '/lessons/:id',
+    { schema: { response: { 200: deleteLessonResponseSchema } } },
+    (request): DeleteLessonResponse => deleteLesson(parseParams(request, lessonParamsSchema).id),
   );
 
   app.post(

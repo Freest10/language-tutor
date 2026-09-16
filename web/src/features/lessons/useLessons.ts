@@ -1,6 +1,6 @@
 /**
  * Данные раздела уроков: список, урок целиком, генерация и пересборка плана,
- * а также материалы, которые можно взять в урок.
+ * удаление урока, а также материалы, которые можно взять в урок.
  *
  * Хуки и ключи запросов вынесены сюда отдельно от компонентов, чтобы комната
  * урока (соседний пакет) переиспользовала ровно те же данные и попадала в тот же
@@ -25,6 +25,7 @@ import {
   DEFAULT_PAGE_SIZE,
   isMaterialErrorStatus,
   type CreateLessonRequest,
+  type DeleteLessonResponse,
   type Exercise,
   type ExerciseAttempt,
   type GetLessonResponse,
@@ -40,6 +41,7 @@ import {
 import { ApiError, isApiError } from '../../api/client';
 import {
   createLesson,
+  deleteLesson,
   getLesson,
   lessonErrorReason,
   listLessonMaterials,
@@ -49,7 +51,7 @@ import {
   type ListLessonMaterialsParams,
   type ListLessonsParams,
 } from '../../api/lessons';
-import { materialsPollInterval } from '../materials/useMaterials';
+import { materialsPollInterval, materialsQueryKeys } from '../materials/useMaterials';
 import { useCapabilities } from '../../context/CapabilitiesProvider';
 import { useApiErrorMessage, useLocale, useT } from '../../i18n/useT';
 import { formatDate, formatDateTime } from '../../lib/format';
@@ -236,6 +238,55 @@ export function useRegenerateLessonPlan(
   });
 }
 
+/**
+ * Отказ означает, что урока уже нет: 404 на удалении.
+ *
+ * Такое бывает штатно — урок удалён в другой вкладке или с другой страницы.
+ * Пугать этим не за что: цель пользователя достигнута, остаётся перечитать
+ * список.
+ */
+export function isLessonAlreadyDeleted(error: unknown): boolean {
+  return isApiError(error) && error.isNotFound;
+}
+
+/**
+ * Удаление урока со всей его историей.
+ *
+ * Сервер удаляет вместе с уроком план, ленту реплик, задания и попытки, поэтому
+ * инвалидируется не только список уроков, но и материалы: пройденность фрагментов
+ * выводится из завершённых шагов, и после удаления счётчик «пройдено N из M»
+ * в соседнем разделе стал бы неверным.
+ *
+ * Инвалидируется именно `lists()`, а не корень `['lessons']`: префикс накрыл бы
+ * и `['lessons', 'materials', ...]`, то есть чужой по смыслу запрос выбора
+ * материалов. Кэш самого урока не инвалидируется, а удаляется: перечитывать
+ * удалённый урок незачем, сервер ответит на него только 404.
+ *
+ * 404 обрабатывается как выполненное удаление: урока нет — значит, списку всё
+ * равно пора обновиться (см. `isLessonAlreadyDeleted`).
+ */
+export function useDeleteLesson(): UseMutationResult<DeleteLessonResponse, Error, string> {
+  const queryClient = useQueryClient();
+
+  const forgetLesson = (lessonId: string): void => {
+    queryClient.removeQueries({ queryKey: lessonsQueryKeys.detail(lessonId) });
+    void queryClient.invalidateQueries({ queryKey: lessonsQueryKeys.lists() });
+    void queryClient.invalidateQueries({ queryKey: materialsQueryKeys.all });
+  };
+
+  return useMutation({
+    mutationFn: (lessonId: string) => deleteLesson(lessonId),
+    onSuccess: (_response, lessonId) => {
+      forgetLesson(lessonId);
+    },
+    onError: (error, lessonId) => {
+      if (isLessonAlreadyDeleted(error)) {
+        forgetLesson(lessonId);
+      }
+    },
+  });
+}
+
 /** Параметры списка материалов для выбора в урок. */
 export interface UseLessonMaterialsOptions extends ListLessonMaterialsParams {
   /** Не ходить на сервер, пока значение `false`. */
@@ -354,6 +405,8 @@ export function useLessonErrorMessage(): (error: unknown) => string {
       }
 
       switch (lessonErrorReason(error)) {
+        case 'llm_response_truncated':
+          return t('errors.responseTruncated');
         case 'materials_not_ready':
           return t('errors.materialsNotReady');
         case 'material_not_found':
@@ -387,7 +440,11 @@ export function useLessonErrorMessage(): (error: unknown) => string {
 
 /** Ключ подсказки в namespace `lessons`, которую стоит показать рядом с ошибкой. */
 export type LlmHintKey =
-  'errors.setupHint' | 'errors.startHint' | 'errors.retryHint' | 'errors.modelNotFoundHint';
+  | 'errors.setupHint'
+  | 'errors.startHint'
+  | 'errors.retryHint'
+  | 'errors.modelNotFoundHint'
+  | 'errors.responseTruncatedHint';
 
 /**
  * Какая подсказка нужна рядом с отказом языковой модели.
@@ -398,9 +455,9 @@ export type LlmHintKey =
  * вернула негодный ответ. Единая подсказка отправляла править конфигурацию
  * даже тогда, когда конфигурация ни при чём.
  *
- * Отдельно стоит ненайденная модель: сервер модели работает и отвечает, поэтому
- * отказ приходит тем же 502, но повторять запрос бессмысленно — модели с таким
- * именем у провайдера нет, и её надо либо установить, либо переименовать в .env.
+ * Отдельно стоят два отказа, которые приходят тем же 502, но повтора не стоят:
+ * ненайденная модель (её надо установить или переименовать в .env) и оборванный
+ * ответ (плану не хватило окна контекста — его надо увеличить у сервера модели).
  */
 export function llmHintKey(error: unknown): LlmHintKey | null {
   if (!isApiError(error) || error.isTimeout || error.isNetworkError) {
@@ -417,6 +474,10 @@ export function llmHintKey(error: unknown): LlmHintKey | null {
 
   if (missingLlmModel(error) !== null) {
     return 'errors.modelNotFoundHint';
+  }
+
+  if (lessonErrorReason(error) === 'llm_response_truncated') {
+    return 'errors.responseTruncatedHint';
   }
 
   if (error.code === 'upstream_error') {

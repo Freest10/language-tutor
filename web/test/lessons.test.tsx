@@ -626,10 +626,42 @@ describe('создание урока', () => {
     expect(screen.queryByText(i18n.t('lessons:errors.retryHint'))).not.toBeInTheDocument();
   });
 
+  it('на оборванный ответ советует расширить окно контекста, а не повторить', async () => {
+    stubCreate(() =>
+      jsonResponse(
+        {
+          error: {
+            code: 'upstream_error',
+            message: 'Языковая модель оборвала ответ на полуслове',
+            details: { reason: 'llm_response_truncated' },
+          },
+        } satisfies ApiErrorResponse,
+        502,
+      ),
+    );
+
+    const { user } = renderApp('/lessons');
+
+    await fillForm(user);
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(await screen.findByText(i18n.t('lessons:errors.responseTruncated'))).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('lessons:errors.responseTruncatedHint'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('lessons:errors.retryHint'))).not.toBeInTheDocument();
+  });
+
   it('ни одна подсказка не отправляет к несуществующей переменной окружения', () => {
     // Подсказка обязана называть только те переменные, которые есть в .env.example.
     for (const locale of ['ru', 'en'] as const) {
-      for (const key of ['setupHint', 'startHint', 'retryHint', 'modelNotFoundHint'] as const) {
+      const keys = [
+        'setupHint',
+        'startHint',
+        'retryHint',
+        'modelNotFoundHint',
+        'responseTruncatedHint',
+      ] as const;
+
+      for (const key of keys) {
         const text = i18n.getFixedT(locale, 'lessons')(`errors.${key}`);
 
         expect(text).not.toMatch(/LLM_PROVIDER/);
@@ -1083,6 +1115,256 @@ describe('план урока', () => {
     renderApp(lessonPlanPath('l-404'));
 
     expect(await screen.findByText(i18n.t('lessons:plan.errors.notFound'))).toBeInTheDocument();
+  });
+});
+
+describe('удаление урока', () => {
+  /** Урок, к которому есть и план, и попытки: у завершённого пересчитается статистика. */
+  const DONE = lesson({
+    id: 'l-1',
+    title: 'Small talk at the airport',
+    status: 'completed',
+    plan: [step({ id: 's-1', order: 0, title: 'Warm-up' })],
+  });
+
+  /** Соседний урок: он обязан пережить удаление первого. */
+  const KEPT = lesson({ id: 'l-2', title: 'Ordering coffee' });
+
+  /**
+   * Подменяет раздел: список уроков и удаление на сервере.
+   *
+   * @param onDelete ответ на `DELETE`; по умолчанию сервер удаляет урок из списка.
+   */
+  function stubLessons(
+    onDelete?: (record: FetchRecord, items: Lesson[]) => Response,
+    initial: Lesson[] = [DONE, KEPT],
+  ): void {
+    let items = [...initial];
+
+    stubFetch((record) => {
+      if (record.path.endsWith('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.method === 'DELETE') {
+        if (onDelete) {
+          return onDelete(record, items);
+        }
+
+        items = items.filter((item) => record.path !== `${API_PREFIX}/lessons/${item.id}`);
+
+        return jsonResponse({ ok: true });
+      }
+
+      const detail = items.find((item) => record.path === `${API_PREFIX}/lessons/${item.id}`);
+
+      if (detail) {
+        return jsonResponse({ lesson: detail, exercises: [], attempts: [] });
+      }
+
+      if (record.path.startsWith(`${API_PREFIX}/lessons/`)) {
+        return errorResponse('not_found', 404);
+      }
+
+      return jsonResponse(listPage(items));
+    });
+  }
+
+  /** Строка списка с этим названием. */
+  async function rowOf(title: string): Promise<HTMLElement> {
+    const heading = await screen.findByRole('heading', { level: 3, name: title });
+
+    return heading.closest('li') as HTMLElement;
+  }
+
+  /** Открывает подтверждение удаления в строке списка. */
+  async function askToDelete(
+    user: ReturnType<typeof userEvent.setup>,
+    title: string,
+  ): Promise<void> {
+    const row = await rowOf(title);
+
+    await user.click(within(row).getByRole('button', { name: i18n.t('actions.delete') }));
+  }
+
+  it('отправляет запрос только после подтверждения и убирает урок из списка', async () => {
+    stubLessons();
+
+    const { user } = renderApp('/lessons');
+
+    await askToDelete(user, 'Small talk at the airport');
+
+    expect(
+      screen.getByText(i18n.t('lessons:delete.question', { title: 'Small talk at the airport' })),
+    ).toBeInTheDocument();
+    // Пока подтверждения нет, на сервер не ушло ничего.
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
+
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:delete.confirm') }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { level: 3, name: 'Small talk at the airport' }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(callsTo('DELETE', '/lessons/l-1')).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 3, name: 'Ordering coffee' })).toBeInTheDocument();
+  });
+
+  it('отменяет удаление кнопкой и клавишей Escape, не отправляя запрос', async () => {
+    stubLessons();
+
+    const { user } = renderApp('/lessons');
+
+    await askToDelete(user, 'Small talk at the airport');
+    await user.click(screen.getByRole('button', { name: i18n.t('actions.cancel') }));
+
+    expect(
+      screen.queryByText(i18n.t('lessons:delete.question', { title: 'Small talk at the airport' })),
+    ).not.toBeInTheDocument();
+
+    await askToDelete(user, 'Small talk at the airport');
+    await user.keyboard('{Escape}');
+
+    expect(
+      screen.queryByText(i18n.t('lessons:delete.question', { title: 'Small talk at the airport' })),
+    ).not.toBeInTheDocument();
+    expect(calls.some((call) => call.method === 'DELETE')).toBe(false);
+  });
+
+  it('называет последствия: историю урока, словарь и возврат материала в новые уроки', async () => {
+    stubLessons();
+
+    const { user } = renderApp('/lessons');
+
+    await askToDelete(user, 'Small talk at the airport');
+
+    const confirm = screen.getByRole('group', { name: i18n.t('lessons:delete.title') });
+
+    expect(within(confirm).getByText(i18n.t('lessons:delete.removed'))).toBeInTheDocument();
+    // Самое неожиданное последствие: материал снова станет доступен для новых уроков.
+    expect(within(confirm).getByText(i18n.t('lessons:delete.material'))).toBeInTheDocument();
+    expect(within(confirm).getByText(i18n.t('lessons:delete.kept'))).toBeInTheDocument();
+    expect(within(confirm).getByText(i18n.t('lessons:delete.irreversible'))).toBeInTheDocument();
+    // Урок завершён: его попытки уносят с собой и долю верных ответов.
+    expect(within(confirm).getByText(i18n.t('lessons:delete.stats'))).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: i18n.t('actions.cancel') }));
+    await askToDelete(user, 'Ordering coffee');
+
+    // У черновика попыток не было, пересчитывать нечего.
+    expect(screen.queryByText(i18n.t('lessons:delete.stats'))).not.toBeInTheDocument();
+  });
+
+  it('со страницы плана уводит на список уроков', async () => {
+    stubLessons();
+
+    const { user } = renderApp(lessonPlanPath('l-1'));
+
+    await user.click(
+      await screen.findByRole('button', { name: i18n.t('lessons:plan.actions.delete') }),
+    );
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:delete.confirm') }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: i18n.t('lessons:title') }),
+    ).toBeInTheDocument();
+    expect(callsTo('DELETE', '/lessons/l-1')).toHaveLength(1);
+  });
+
+  it('на 404 не пугает ошибкой, а перечитывает список', async () => {
+    // Урок удалён в другой вкладке: сервер про него уже не знает, список — тоже.
+    stubLessons((record, items) => {
+      const index = items.findIndex((item) => record.path === `${API_PREFIX}/lessons/${item.id}`);
+
+      if (index >= 0) {
+        items.splice(index, 1);
+      }
+
+      return jsonResponse(
+        {
+          error: {
+            code: 'not_found',
+            message: 'Lesson not found',
+            details: { reason: 'lesson_not_found' },
+          },
+        } satisfies ApiErrorResponse,
+        404,
+      );
+    });
+
+    const { user } = renderApp('/lessons');
+
+    await askToDelete(user, 'Small talk at the airport');
+
+    const listsBefore = callsTo('GET', '/lessons').length;
+
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:delete.confirm') }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', { level: 3, name: 'Small talk at the airport' }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(callsTo('GET', '/lessons').length).toBeGreaterThan(listsBefore);
+    expect(screen.queryByText(i18n.t('lessons:errors.deleteFailed'))).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 3, name: 'Ordering coffee' })).toBeInTheDocument();
+  });
+
+  it('перечитывает и список уроков, и материалы: пройденность фрагментов изменилась', async () => {
+    let lessons = [DONE];
+
+    stubFetch((record) => {
+      if (record.path.endsWith('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.path === `${API_PREFIX}/materials`) {
+        return jsonResponse(
+          listPage([material({ id: 'm-1', title: 'Weekly news', coveredChunkCount: 2 })]),
+        );
+      }
+
+      if (record.method === 'DELETE') {
+        lessons = [];
+
+        return jsonResponse({ ok: true });
+      }
+
+      return jsonResponse(listPage(lessons));
+    });
+
+    // Свежесть кэша нарочно долгая: повторный запрос возможен только из-за
+    // инвалидации, а не из-за того, что данные устарели сами по себе.
+    const { user } = renderApp(
+      '/materials',
+      new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } }),
+    );
+
+    await screen.findByRole('heading', { level: 3, name: 'Weekly news' });
+
+    const materialsBefore = callsTo('GET', '/materials').length;
+
+    await user.click(screen.getByRole('link', { name: i18n.t('nav.lessons') }));
+    await rowOf('Small talk at the airport');
+
+    const listsBefore = callsTo('GET', '/lessons').length;
+
+    await askToDelete(user, 'Small talk at the airport');
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:delete.confirm') }));
+
+    await waitFor(() => {
+      expect(callsTo('GET', '/lessons').length).toBeGreaterThan(listsBefore);
+    });
+
+    await user.click(screen.getByRole('link', { name: i18n.t('nav.materials') }));
+
+    await waitFor(() => {
+      expect(callsTo('GET', '/materials').length).toBeGreaterThan(materialsBefore);
+    });
   });
 });
 

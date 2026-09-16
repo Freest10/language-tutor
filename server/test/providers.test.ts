@@ -490,6 +490,29 @@ describe('структурированный JSON', () => {
     expect(logger.entries).toHaveLength(2);
   });
 
+  it('не чинит оборванный ответ: он не поместился в окно контекста', async () => {
+    const cut = new Response(
+      JSON.stringify({
+        model: 'qwen3:8b',
+        choices: [{ message: { content: '{"level":"B1","sco' }, finish_reason: 'length' }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+    const fetchMock: FetchMock = vi.fn(async () => cut.clone());
+
+    stubFetch(fetchMock);
+
+    const error = await requestStructuredJson({
+      schema,
+      provider: createLlmProvider(LLM_OPTIONS),
+      messages: [{ role: 'user', content: 'оцени уровень' }],
+    }).catch((reason: unknown) => reason);
+
+    expect(isProviderError(error) && error.kind).toBe('response_truncated');
+    // Ремонтный заход не делается: он лишь удлинит диалог, который и так не влез.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('не принимает 404 за неподдержанный режим: это ненайденная модель', async () => {
     const fetchMock: FetchMock = vi.fn(async () =>
       jsonResponse({ error: { message: "model 'qwen3:8b' not found" } }, 404),

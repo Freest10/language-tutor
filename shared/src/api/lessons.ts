@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   idParamSchema,
   idSchema,
+  okResponseSchema,
   paginatedResponseSchema,
   paginationQuerySchema,
 } from './common.js';
@@ -105,3 +106,20 @@ export const regenerateLessonPlanResponseSchema = lessonSchema;
 
 /** Ответ `POST /api/lessons/:id/plan/regenerate`. */
 export type RegenerateLessonPlanResponse = z.infer<typeof regenerateLessonPlanResponseSchema>;
+
+/**
+ * Ответ `DELETE /api/lessons/:id`.
+ *
+ * Удаление уводит вместе с уроком его план, реплики, задания и попытки
+ * (внешние ключи с `ON DELETE CASCADE`), но НЕ трогает словарь и журнал ошибок:
+ * у них связь с уроком гасится в `NULL`, потому что выученное словo остаётся
+ * выученным, даже если занятие удалили.
+ *
+ * Побочное следствие, о котором клиент обязан предупредить: фрагменты
+ * материала, отработанные в этом уроке, снова считаются непройденными — признак
+ * «пройдено» выводится из завершённых шагов, а их больше нет.
+ */
+export const deleteLessonResponseSchema = okResponseSchema;
+
+/** Ответ `DELETE /api/lessons/:id`. */
+export type DeleteLessonResponse = z.infer<typeof deleteLessonResponseSchema>;

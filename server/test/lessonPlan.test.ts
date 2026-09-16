@@ -17,6 +17,7 @@ import { buildApp } from '../src/app.js';
 import { closeDb, getDb, IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
 import { PROFILE_ROW_ID, type LessonPlanStepRow } from '../src/db/rows.js';
+import { findCoveredChunkIds } from '../src/repositories/lessonRepository.js';
 import { createMaterialFromText } from '../src/services/materialService.js';
 
 const LESSONS_URL = `${API_PREFIX}/lessons`;
@@ -398,6 +399,46 @@ describe('POST /api/lessons', () => {
       .all(lesson.id) as { material_id: string }[];
 
     expect(links.map((link) => link.material_id)).toEqual([material.id]);
+  });
+
+  it('с материалом берёт тему из него, а не из целей профиля', async () => {
+    // Регрессия: в промпте стояло «Topic: choose one that fits the goals and the
+    // interests», и модель строила урок про повседневное общение (цель профиля)
+    // поверх только что загруженного учебника — цитаты в промпте были, а урок
+    // оказывался не о них.
+    const material = await createMaterialFromText({ title: 'Супермаркет', text: MATERIAL_TEXT });
+    const fetchMock = stubLlm(defaultPlan());
+
+    await createLesson({ materialIds: [material.id] });
+
+    const prompt = promptOf(fetchMock);
+
+    expect(prompt).toContain('Topic: derive it from the material excerpts below');
+    expect(prompt).not.toContain('Topic: choose one that fits the goals');
+    // Напоминание стоит после цитат: конец промпта модель держит лучше всего.
+    expect(prompt.indexOf('This lesson is about the material above')).toBeGreaterThan(
+      prompt.indexOf(MATERIAL_QUOTE),
+    );
+  });
+
+  it('без материалов тему по-прежнему выбирают цели и интересы', async () => {
+    const fetchMock = stubLlm(defaultPlan());
+
+    await createLesson({});
+
+    const prompt = promptOf(fetchMock);
+
+    expect(prompt).toContain('Topic: choose one that fits the goals and the interests');
+    expect(prompt).not.toContain('This lesson is about the material above');
+  });
+
+  it('заданную учеником тему материал не перебивает', async () => {
+    const material = await createMaterialFromText({ title: 'Супермаркет', text: MATERIAL_TEXT });
+    const fetchMock = stubLlm(defaultPlan());
+
+    await createLesson({ materialIds: [material.id], topic: 'Покупки' });
+
+    expect(promptOf(fetchMock)).toContain('Topic: Покупки');
   });
 
   it('приводит минуты шагов к длительности урока', async () => {
@@ -886,5 +927,68 @@ describe('учёт пройденного материала', () => {
     const updated = await regeneratePlan(second.id);
 
     expect(chunkIdsOf(updated.plan)).toEqual(chunkIds.slice(2));
+  });
+});
+
+describe('DELETE /api/lessons/:id', () => {
+  const MATERIAL_ID = 'material-delete';
+  const ALL_REFS = ['C1', 'C2', 'C3', 'C4'];
+
+  it('удаляет урок вместе с планом и привязками материалов', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']));
+
+    const lesson = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    expect(stepRows(lesson.id).length).toBeGreaterThan(0);
+    expect(countRows('lesson_materials')).toBeGreaterThan(0);
+
+    const response = await app.inject({ method: 'DELETE', url: `${LESSONS_URL}/${lesson.id}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+    expect(countRows('lessons')).toBe(0);
+    expect(stepRows(lesson.id)).toHaveLength(0);
+    expect(countRows('lesson_materials')).toBe(0);
+    // Сам материал и его фрагменты удаление урока не трогает.
+    expect(countRows('materials')).toBe(1);
+    expect(countRows('material_chunks')).toBe(chunkIds.length);
+  });
+
+  it('отвечает 404 на неизвестный урок и не трогает существующие', async () => {
+    stubLlm(defaultPlan());
+
+    const lesson = await createLesson();
+    const response = await app.inject({ method: 'DELETE', url: `${LESSONS_URL}/нет-такого` });
+
+    expect(response.statusCode).toBe(404);
+    expect(apiErrorResponseSchema.parse(response.json()).error.code).toBe('not_found');
+    expect(countRows('lessons')).toBe(1);
+    expect(stepRows(lesson.id).length).toBeGreaterThan(0);
+  });
+
+  it('возвращает материал удалённого урока в оборот', async () => {
+    // Признак «пройдено» выводится из завершённых шагов. Урока больше нет —
+    // значит и отметки о проработке нет, фрагменты снова доступны новым урокам.
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS));
+
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+    const readingStep = first.plan[1];
+
+    markStepsCompleted(first.id, [String(readingStep?.id)], String(first.plan[2]?.id));
+
+    expect([...findCoveredChunkIds([MATERIAL_ID])]).toEqual(chunkIds.slice(0, 2));
+
+    await app.inject({ method: 'DELETE', url: `${LESSONS_URL}/${first.id}` });
+
+    expect(findCoveredChunkIds([MATERIAL_ID]).size).toBe(0);
+
+    const second = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    // Фрагменты удалённого урока снова доступны: отметки о проработке больше нет.
+    expect(chunkIdsOf(second.plan)).toContain(chunkIds[0]);
   });
 });

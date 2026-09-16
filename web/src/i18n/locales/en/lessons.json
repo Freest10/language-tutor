@@ -51,14 +51,17 @@
     "upstreamUnavailable": "The language model is unavailable: usually it is stopped or busy with another request.",
     "upstreamError": "The language model returned an answer the application could not read.",
     "modelNotFound": "The model “{{model}}” is not installed on the provider, so a lesson plan cannot be generated.",
+    "responseTruncated": "The model cut its answer off mid-word: the lesson plan did not fit into its context window.",
     "setupHint": "Planning runs through a language model. A local model needs no key: set LLM_BASE_URL (http://localhost:11434/v1 by default) and LLM_MODEL in .env, then restart the server. LLM_API_KEY is only needed by a cloud provider.",
     "startHint": "The model is probably just not running. Start it with `ollama serve`, then `ollama pull qwen3:8b` — or `npm run stack:up` if you prefer Docker. Run `npm run smoke` to see which step fails.",
     "retryHint": "The model replied off-schema. Try again: the app makes one repair attempt and the second run often succeeds. If it keeps failing, set a larger model (8B or above) in LLM_MODEL.",
     "modelNotFoundHint": "Retrying will not help: the provider has no model under that name. Install it (`ollama pull` with that name) or put an already installed one into LLM_MODEL — `ollama list` shows which ones you have — and restart the server.",
+    "responseTruncatedHint": "Retrying will not help — the answer is cut at the same place. Raise the model context window (for Ollama that is OLLAMA_CONTEXT_LENGTH=8192, the num_ctx option in a Modelfile, or the “Context length” setting in the Ollama app) and restart it. The other way is a shorter lesson: fewer minutes and fewer materials at once.",
     "materialsNotReady": "Some of the picked materials have no extracted text yet, so the lesson was not created.",
     "materialNotFound": "One of the picked materials no longer exists: refresh the list of materials.",
     "lessonCompleted": "The lesson is already finished, so its plan cannot be rebuilt. Create a new lesson instead.",
-    "lessonPlanFull": "The plan already has the maximum number of steps, so a new one cannot be added. Rebuild it without keeping the finished steps, or create a new lesson."
+    "lessonPlanFull": "The plan already has the maximum number of steps, so a new one cannot be added. Rebuild it without keeping the finished steps, or create a new lesson.",
+    "deleteFailed": "The lesson could not be deleted."
   },
   "list": {
     "title": "Your lessons",
@@ -90,6 +93,17 @@
       "review": "Open the lesson",
       "openPlan": "Open the plan"
     }
+  },
+  "delete": {
+    "title": "Confirm deletion",
+    "question": "Delete the lesson “{{title}}”?",
+    "irreversible": "Deletion is final: the lesson cannot be brought back.",
+    "removed": "The lesson takes its plan and steps, the whole transcript, the generated exercises and your attempts at them with it.",
+    "kept": "The words you learned, the error journal entries and the level history stay — they simply stop pointing at this lesson.",
+    "material": "The material covered in this lesson becomes uncovered again and comes back into new lessons.",
+    "stats": "The lesson is finished: its attempts go away with it, so the share of correct answers in your progress is recalculated.",
+    "confirm": "Yes, delete the lesson",
+    "pending": "Deleting the lesson…"
   },
   "create": {
     "open": "New lesson",
@@ -196,7 +210,8 @@
     },
     "actions": {
       "start": "Start the lesson",
-      "backToList": "All lessons"
+      "backToList": "All lessons",
+      "delete": "Delete the lesson"
     },
     "fields": {
       "level": "Level",

@@ -4,18 +4,28 @@
  * Список ничего не загружает сам — данные и фильтр приходят со страницы, чтобы
  * одно и то же состояние списка не жило в двух местах.
  *
- * Действий у урока два: вернуться в комнату (продолжить или посмотреть, как
- * прошло) и открыть план. Удаления нет: `DELETE /api/lessons/:id` в контракте
- * отсутствует, и кнопка, которая ничего не делает, хуже её отсутствия.
+ * Действий у урока три: вернуться в комнату (продолжить или посмотреть, как
+ * прошло), открыть план и удалить урок.
+ *
+ * Удаление подтверждается своим блоком прямо в строке списка, а не системным
+ * `window.confirm`: диалог браузера блокирует поток, не переводится и не читается
+ * экранной читалкой как часть страницы. Перечень последствий живёт в
+ * `DeleteLessonConfirm` — общем блоке со страницей плана.
+ *
+ * Отказ 404 ошибкой не показывается: урока и так нет, а список после него
+ * перечитывается сам — цель пользователя достигнута, пугать его нечем.
  */
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { LESSON_STATUSES, type Lesson, type LessonStatus } from '@lt/shared';
 
 import type { ApiError } from '../../api/client';
 
+import { DeleteLessonConfirm } from './DeleteLessonConfirm';
 import {
+  isLessonAlreadyDeleted,
+  useDeleteLesson,
   useLessonErrorMessage,
   useLessonFormatters,
   useLessonStatusText,
@@ -62,10 +72,27 @@ function roomActionKey(status: LessonStatus): string {
 /** Свойства строки списка. */
 interface LessonRowProps {
   lesson: Lesson;
+  /** В этой строке открыто подтверждение удаления. */
+  confirming: boolean;
+  /** Запрос на удаление этого урока уже отправлен. */
+  isDeleting: boolean;
+  /** Показать подтверждение удаления. */
+  onRequestDelete: (lessonId: string) => void;
+  /** Удаление подтверждено. */
+  onConfirmDelete: (lessonId: string) => void;
+  /** Удаление отменено. */
+  onCancelDelete: () => void;
 }
 
-/** Строка списка: название, статус, свойства урока и переходы. */
-function LessonRow({ lesson }: LessonRowProps) {
+/** Строка списка: название, статус, свойства урока, переходы и удаление. */
+function LessonRow({
+  lesson,
+  confirming,
+  isDeleting,
+  onRequestDelete,
+  onConfirmDelete,
+  onCancelDelete,
+}: LessonRowProps) {
   const t = useT('lessons');
   const { formatDateTime } = useLessonFormatters();
   const statusText = useLessonStatusText();
@@ -102,7 +129,28 @@ function LessonRow({ lesson }: LessonRowProps) {
         <Link className="lt-button" to={lessonPlanPath(lesson.id)} aria-describedby={titleId}>
           {t('list.actions.openPlan')}
         </Link>
+        <button
+          type="button"
+          className="lt-button"
+          aria-describedby={titleId}
+          disabled={confirming}
+          onClick={() => {
+            onRequestDelete(lesson.id);
+          }}
+        >
+          {t('common:actions.delete')}
+        </button>
       </div>
+      {confirming && (
+        <DeleteLessonConfirm
+          lesson={lesson}
+          isDeleting={isDeleting}
+          onConfirm={() => {
+            onConfirmDelete(lesson.id);
+          }}
+          onCancel={onCancelDelete}
+        />
+      )}
     </li>
   );
 }
@@ -124,9 +172,26 @@ export function LessonList({
   const t = useT('lessons');
   const toErrorMessage = useLessonErrorMessage();
   const statusText = useLessonStatusText();
+  const remove = useDeleteLesson();
   const headingId = useId();
   const filterId = `${headingId}-filter`;
   const isEmpty = !isLoading && !isError && lessons.length === 0;
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // 404 значит, что урок удалён где-то ещё: показывать такой отказ незачем.
+  const deleteError = remove.error !== null && !isLessonAlreadyDeleted(remove.error);
+
+  const confirmDelete = (lessonId: string): void => {
+    remove.mutate(lessonId, {
+      onSuccess: () => {
+        setConfirmingId(null);
+      },
+      onError: (error) => {
+        if (isLessonAlreadyDeleted(error)) {
+          setConfirmingId(null);
+        }
+      },
+    });
+  };
 
   return (
     <section className="lt-card" aria-labelledby={headingId}>
@@ -184,7 +249,17 @@ export function LessonList({
           <p className="lt-status">{t('list.summary', { shown: lessons.length, total })}</p>
           <ul className="lt-list" aria-labelledby={headingId}>
             {lessons.map((lesson) => (
-              <LessonRow key={lesson.id} lesson={lesson} />
+              <LessonRow
+                key={lesson.id}
+                lesson={lesson}
+                confirming={lesson.id === confirmingId}
+                isDeleting={remove.isPending && remove.variables === lesson.id}
+                onRequestDelete={setConfirmingId}
+                onConfirmDelete={confirmDelete}
+                onCancelDelete={() => {
+                  setConfirmingId(null);
+                }}
+              />
             ))}
           </ul>
 
@@ -194,6 +269,13 @@ export function LessonList({
             </button>
           )}
         </>
+      )}
+
+      {deleteError && (
+        <div className="lt-banner lt-banner--error" role="alert">
+          <p className="lt-banner__title">{t('errors.deleteFailed')}</p>
+          <p>{toErrorMessage(remove.error)}</p>
+        </div>
       )}
     </section>
   );

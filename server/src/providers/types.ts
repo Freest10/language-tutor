@@ -33,6 +33,8 @@ export type ProviderTarget = (typeof PROVIDER_TARGETS)[number];
  * - `timeout` — провайдер не ответил за отведённое время;
  * - `network` — соединение не установлено или разорвано;
  * - `model_not_found` — провайдер работает, но модели с таким именем у него нет;
+ * - `response_truncated` — ответ оборван на полуслове: он не поместился в окно
+ *   контекста модели;
  * - `http` — провайдер ответил статусом 4xx/5xx;
  * - `invalid_response` — ответ разобрать не удалось (не JSON, нет нужных полей).
  */
@@ -41,6 +43,7 @@ export const PROVIDER_ERROR_KINDS = [
   'timeout',
   'network',
   'model_not_found',
+  'response_truncated',
   'http',
   'invalid_response',
 ] as const;
@@ -119,6 +122,7 @@ const REASON_SUFFIXES: Record<ProviderErrorKind, string> = {
   timeout: 'timeout',
   network: 'unavailable',
   model_not_found: 'model_not_found',
+  response_truncated: 'response_truncated',
   http: 'upstream_error',
   invalid_response: 'invalid_response',
 };
@@ -128,6 +132,8 @@ const REASON_SUFFIXES: Record<ProviderErrorKind, string> = {
  * - не настроен → 501 `not_configured`;
  * - таймаут или нет соединения → 503 `upstream_unavailable`;
  * - нет такой модели → 502 `upstream_error` с пометкой `*_model_not_found`;
+ * - ответ оборван окном контекста → 502 `upstream_error` с пометкой
+ *   `*_response_truncated`;
  * - провайдер ответил ошибкой или неразбираемым результатом → 502 `upstream_error`.
  *
  * `AppError` пропускается как есть, всё остальное становится 500: подробности
@@ -164,6 +170,11 @@ export function providerErrorToAppError(error: unknown, target: ProviderTarget):
     // провайдера некому.
     case 'model_not_found':
       return upstreamError(error.message, options);
+    case 'response_truncated':
+      return upstreamError(
+        `${label} оборвала ответ на полуслове: он не поместился в окно контекста`,
+        options,
+      );
     case 'http':
       return upstreamError(`${label} ответила ошибкой`, options);
     case 'invalid_response':
