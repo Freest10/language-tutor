@@ -149,7 +149,9 @@ a {
   text-decoration: none;
 }
 
-.lt-nav__link:hover {
+/* У активного пункта свой фон; без исключения наведение красило его в белый,
+   а текст оставался белым «для синего фона» — пункт исчезал под курсором. */
+.lt-nav__link:hover:not(.lt-nav__link--active) {
   background-color: var(--lt-color-bg);
 }
 
@@ -462,10 +464,29 @@ a {
   align-items: center;
   justify-content: space-between;
   gap: var(--lt-space-sm);
+  min-width: 0;
+  max-width: 100%;
   padding: var(--lt-space-md);
   border: 1px solid var(--lt-color-border);
   border-radius: var(--lt-radius);
   background: var(--lt-color-surface);
+}
+
+/* Строка пункта: чекбокс, название и бейджи. */
+.lt-list__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lt-space-sm);
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Название материала — это имя файла: «Roberts_R_Buchanan_H_Pathare_E…» не
+   содержит пробелов и без принудительного переноса распирает карточку. */
+.lt-list__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .lt-list__item--selected {

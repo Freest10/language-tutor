@@ -90,7 +90,7 @@ function MaterialOption({
       className={selected ? 'lt-list__item lt-list__item--selected' : 'lt-list__item'}
       style={{ alignItems: 'flex-start', flexDirection: 'column' }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: 'var(--lt-space-sm)' }}>
+      <span className="lt-list__row">
         <input
           id={inputId}
           type="checkbox"
@@ -102,7 +102,9 @@ function MaterialOption({
             onToggle(material.id, event.target.checked);
           }}
         />
-        <label htmlFor={inputId}>{material.title}</label>
+        <label className="lt-list__title" htmlFor={inputId}>
+          {material.title}
+        </label>
         <span className={`lt-badge lt-badge--${tone}`}>{status.label}</span>
         {coverage.isFullyCovered && (
           <span className="lt-badge lt-badge--muted" data-covered="full">

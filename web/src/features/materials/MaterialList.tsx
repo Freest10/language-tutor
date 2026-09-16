@@ -160,7 +160,9 @@ function MaterialRow({
       aria-busy={status.isPending}
       style={{ marginBottom: 'var(--lt-space-md)' }}
     >
-      <h3 id={titleId} style={{ margin: 0 }}>
+      {/* Название материала — имя файла без пробелов: без переноса оно
+          распирает карточку. */}
+      <h3 id={titleId} className="lt-list__title" style={{ margin: 0 }}>
         {material.title}
       </h3>
       <p>
