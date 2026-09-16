@@ -40,7 +40,12 @@ const workspaceRoot = dirname(serverRoot);
 
 // `.env` лежит в корне монорепо: путь считаем от текущего файла, чтобы не зависеть от cwd
 // (dev — из `server/`, prod — из `server/dist/`). dotenv не перетирает заданные переменные.
-config({ path: join(workspaceRoot, '.env'), quiet: true });
+//
+// В тестах файл НЕ читается: иначе результат прогона зависел бы от `.env` на машине
+// разработчика — свой LLM_MODEL или STT_PROVIDER молча ронял бы чужие тесты.
+if (process.env['NODE_ENV'] !== 'test') {
+  config({ path: join(workspaceRoot, '.env'), quiet: true });
+}
 
 /** Версия сервера из `package.json`: отдаётся в `/api/health` и `/api/config`. */
 export const APP_VERSION = readPackageVersion();
@@ -87,6 +92,24 @@ export const DEFAULT_SCAN_OCR_LANGS = ['en-US', 'ru-RU'] as const;
 /** Пустая строка в `.env` означает «переменная не задана». */
 function emptyToUndefined(value: unknown): unknown {
   return typeof value === 'string' && value.trim() === '' ? undefined : value;
+}
+
+/**
+ * Необязательное число: `VAR=` и отсутствие переменной равнозначны.
+ *
+ * Без `preprocess` пустая строка коэрцится в `0` и проваливает нижнюю границу —
+ * то есть `VAR=` ломает старт, хотя именно так `.env.example` и предлагает
+ * оставлять необязательные переменные.
+ */
+function optionalNumber(
+  min: number,
+  max: number,
+  error: string,
+): z.ZodType<number | undefined, unknown> {
+  return z.preprocess(
+    emptyToUndefined,
+    z.coerce.number({ error }).int().min(min).max(max).optional(),
+  );
 }
 
 /** Необязательная строка: `VAR=` и отсутствие переменной равнозначны. */
@@ -147,12 +170,11 @@ export const envSchema = z.object({
   // Предел ИЗВЛЕЧЁННОГО текста, а не файла. Пусто — вывести из MAX_UPLOAD_MB.
   // Держать два независимых числа нельзя: иначе файл проходит по размеру и
   // умирает на символах, причём уже после успешной загрузки.
-  MAX_MATERIAL_TEXT_CHARS: z.coerce
-    .number({ error: 'ожидается число символов от 1 000 до 250 000 000' })
-    .int()
-    .min(1000)
-    .max(250_000_000)
-    .optional(),
+  MAX_MATERIAL_TEXT_CHARS: optionalNumber(
+    1000,
+    250_000_000,
+    'ожидается число символов от 1 000 до 250 000 000',
+  ),
 
   // ---------- Распознавание сканов ----------
   SCAN_MODE: z.enum(SCAN_MODES, { error: oneOf(SCAN_MODES) }).default('ocr'),

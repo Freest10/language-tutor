@@ -23,10 +23,13 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 // `npm run db:migrate` запускается отдельным процессом, без bootstrap из `src/index.ts`,
 // поэтому `.env` читаем и здесь: dotenv не перетирает уже заданные переменные окружения.
 // Кандидаты — запуск из исходников (`src/db/`) и из сборки (`dist/src/db/`).
-config({
-  path: [resolve(moduleDir, '../../../.env'), resolve(moduleDir, '../../../../.env')],
-  quiet: true,
-});
+// В тестах файл не читается — см. пояснение в `config/env.ts`.
+if (process.env['NODE_ENV'] !== 'test') {
+  config({
+    path: [resolve(moduleDir, '../../../.env'), resolve(moduleDir, '../../../../.env')],
+    quiet: true,
+  });
+}
 
 /** Значение `DB_PATH`, включающее базу в памяти (используется в тестах). */
 export const IN_MEMORY_DB_PATH = ':memory:';

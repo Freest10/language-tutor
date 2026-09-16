@@ -387,10 +387,7 @@ export function useLessonErrorMessage(): (error: unknown) => string {
 
 /** Ключ подсказки в namespace `lessons`, которую стоит показать рядом с ошибкой. */
 export type LlmHintKey =
-  | 'errors.setupHint'
-  | 'errors.startHint'
-  | 'errors.retryHint'
-  | 'errors.modelNotFoundHint';
+  'errors.setupHint' | 'errors.startHint' | 'errors.retryHint' | 'errors.modelNotFoundHint';
 
 /**
  * Какая подсказка нужна рядом с отказом языковой модели.

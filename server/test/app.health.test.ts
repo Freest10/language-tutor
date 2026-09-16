@@ -145,6 +145,17 @@ describe('GET /api/config', () => {
     expect(parseEnv({ MAX_MATERIAL_TEXT_CHARS: '12000000' }).maxMaterialTextChars).toBe(12_000_000);
   });
 
+  it('пустое значение необязательной переменной не роняет старт', () => {
+    // Регрессия: `.env.example` предлагает оставлять необязательные переменные
+    // пустыми, но `z.coerce.number()` превращал '' в 0 и проваливал min(1000).
+    // То есть `cp .env.example .env` по инструкции из README ломал запуск.
+    expect(parseEnv({ MAX_MATERIAL_TEXT_CHARS: '' }).maxMaterialTextChars).toBe(220_000_000);
+    expect(parseEnv({ MAX_MATERIAL_TEXT_CHARS: '   ' }).maxMaterialTextChars).toBe(220_000_000);
+    // Заданное значение по-прежнему уважается, а мусор по-прежнему отвергается.
+    expect(parseEnv({ MAX_MATERIAL_TEXT_CHARS: '9000' }).maxMaterialTextChars).toBe(9000);
+    expect(() => parseEnv({ MAX_MATERIAL_TEXT_CHARS: '10' })).toThrow(EnvValidationError);
+  });
+
   it('предел символов выводится из размера файла, если не задан явно', () => {
     // Два независимых числа противоречили бы друг другу: файл прошёл бы по
     // размеру и умер на символах уже ПОСЛЕ успешной загрузки.

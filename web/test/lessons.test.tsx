@@ -596,10 +596,40 @@ describe('создание урока', () => {
     expect(screen.queryByText(i18n.t('lessons:errors.setupHint'))).not.toBeInTheDocument();
   });
 
+  it('на ненайденную модель называет её и не советует повторить попытку', async () => {
+    // Регрессия: Ollama отвечает 404 на модель, которой нет, а приложение
+    // показывало общий текст «модель ответила не по схеме» и советовало
+    // повторить запрос — повторять было нечего, в LLM_MODEL стояло имя
+    // неустановленной модели.
+    stubCreate(() =>
+      jsonResponse(
+        {
+          error: {
+            code: 'upstream_error',
+            message: 'Модель «qwen3:8b» не найдена у провайдера',
+            details: { reason: 'llm_model_not_found', status: 404, model: 'qwen3:8b' },
+          },
+        } satisfies ApiErrorResponse,
+        502,
+      ),
+    );
+
+    const { user } = renderApp('/lessons');
+
+    await fillForm(user);
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(
+      await screen.findByText(i18n.t('lessons:errors.modelNotFound', { model: 'qwen3:8b' })),
+    ).toBeInTheDocument();
+    expect(screen.getByText(i18n.t('lessons:errors.modelNotFoundHint'))).toBeInTheDocument();
+    expect(screen.queryByText(i18n.t('lessons:errors.retryHint'))).not.toBeInTheDocument();
+  });
+
   it('ни одна подсказка не отправляет к несуществующей переменной окружения', () => {
     // Подсказка обязана называть только те переменные, которые есть в .env.example.
     for (const locale of ['ru', 'en'] as const) {
-      for (const key of ['setupHint', 'startHint', 'retryHint'] as const) {
+      for (const key of ['setupHint', 'startHint', 'retryHint', 'modelNotFoundHint'] as const) {
         const text = i18n.getFixedT(locale, 'lessons')(`errors.${key}`);
 
         expect(text).not.toMatch(/LLM_PROVIDER/);
