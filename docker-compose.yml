@@ -42,7 +42,7 @@ services:
     container_name: lt-ollama
     restart: unless-stopped
     ports:
-      - '11434:11434'
+      - '127.0.0.1:11434:11434'
     volumes:
       # Скачанные модели переживают пересоздание контейнера: qwen3:8b — это ~5 ГиБ.
       - ollama-models:/root/.ollama
@@ -70,7 +70,7 @@ services:
     container_name: lt-stt
     restart: unless-stopped
     ports:
-      - '8000:8000'
+      - '127.0.0.1:8000:8000'
     volumes:
       # Кэш Hugging Face: без него модель качается заново после каждого `down`.
       - stt-models:/home/ubuntu/.cache/huggingface/hub
@@ -94,7 +94,7 @@ services:
     container_name: lt-tts
     restart: unless-stopped
     ports:
-      - '8880:8880'
+      - '127.0.0.1:8880:8880'
     healthcheck:
       # В образе нет curl, зато есть python из базового образа.
       test:

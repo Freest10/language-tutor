@@ -42,6 +42,50 @@ afterAll(async () => {
   await app.close();
 });
 
+describe('сетевые границы доступа', () => {
+  // Аутентификации нет по замыслу (A6), поэтому привязка к интерфейсу и список
+  // CORS-источников — единственные границы доступа. Дефолты обязаны быть узкими:
+  // иначе профиль, материалы и расшифровки уроков читает любой сайт, открытый
+  // пользователем, и любой сосед по сети.
+  it('по умолчанию слушает петлю, а не все интерфейсы', () => {
+    expect(parseEnv({}).host).toBe('127.0.0.1');
+  });
+
+  it('по умолчанию разрешает CORS только собственному вебу', () => {
+    expect(parseEnv({}).corsOrigin).toEqual(['http://localhost:5173', 'http://127.0.0.1:5173']);
+  });
+
+  it('учитывает WEB_PORT в списке разрешённых источников', () => {
+    expect(parseEnv({ WEB_PORT: '4321' }).corsOrigin).toEqual([
+      'http://localhost:4321',
+      'http://127.0.0.1:4321',
+    ]);
+  });
+
+  it('пустой CORS_ORIGIN не означает «отражать любой Origin»', () => {
+    const { corsOrigin } = parseEnv({ CORS_ORIGIN: '   ' });
+
+    expect(corsOrigin).not.toHaveLength(0);
+    expect(corsOrigin).toEqual(expect.arrayContaining(['http://localhost:5173']));
+  });
+
+  it('отвергает запрос с чужого источника и пропускает свой', async () => {
+    const foreign = await app.inject({
+      method: 'GET',
+      url: `${API_PREFIX}/health`,
+      headers: { origin: 'https://evil.example' },
+    });
+    const own = await app.inject({
+      method: 'GET',
+      url: `${API_PREFIX}/health`,
+      headers: { origin: 'http://localhost:5173' },
+    });
+
+    expect(foreign.headers['access-control-allow-origin']).toBeUndefined();
+    expect(own.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+});
+
 describe('GET /api/health', () => {
   it('отвечает ok и проверяет базу запросом', async () => {
     const response = await app.inject({ method: 'GET', url: `${API_PREFIX}/health` });

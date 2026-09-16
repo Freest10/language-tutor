@@ -77,8 +77,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerZodValidation(app);
   registerErrorHandler(app);
 
-  // Приложение локальное: без CORS_ORIGIN отражаем Origin запроса (в том числе dev-сервер Vite).
-  await app.register(cors, { origin: env.corsOrigin ?? true });
+  // Приложение локальное и без аутентификации (A6), поэтому CORS — одна из двух
+  // границ доступа вместе с сетевой привязкой. Список источников всегда явный:
+  // по умолчанию это собственный дев-сервер Vite, и никогда не «отражать любой
+  // Origin» — иначе любой открытый пользователем сайт читал бы его профиль,
+  // материалы и расшифровки уроков.
+  await app.register(cors, { origin: env.corsOrigin });
   await app.register(multipart, { limits: { fileSize: env.maxUploadBytes } });
 
   for (const routes of ROUTE_MODULES) {

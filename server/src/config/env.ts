@@ -96,7 +96,10 @@ function oneOf(values: readonly string[]): string {
 export const envSchema = z.object({
   // ---------- Приложение ----------
   NODE_ENV: z.enum(NODE_ENVS, { error: oneOf(NODE_ENVS) }).default('development'),
-  HOST: z.string({ error: 'ожидается имя хоста' }).trim().min(1).max(255).default('0.0.0.0'),
+  // Петля, а не 0.0.0.0: аутентификации в приложении нет по замыслу (допущение A6),
+  // поэтому сетевая привязка — единственная граница доступа. Слушать все интерфейсы
+  // значит отдать профиль, материалы и расшифровки уроков любому в той же сети.
+  HOST: z.string({ error: 'ожидается имя хоста' }).trim().min(1).max(255).default('127.0.0.1'),
   PORT: z.coerce
     .number({ error: 'ожидается номер порта 1..65535' })
     .int()
@@ -104,6 +107,13 @@ export const envSchema = z.object({
     .max(65_535)
     .default(8787),
   LOG_LEVEL: z.enum(LOG_LEVELS, { error: oneOf(LOG_LEVELS) }).default('info'),
+  // Порт дев-сервера Vite. Серверу нужен только чтобы разрешить ему CORS.
+  WEB_PORT: z.coerce
+    .number({ error: 'ожидается номер порта 1..65535' })
+    .int()
+    .min(1)
+    .max(65_535)
+    .default(5173),
 
   // ---------- Хранилище ----------
   DB_PATH: optionalString(1024, 'ожидается путь к файлу базы'),
@@ -178,7 +188,7 @@ export interface Env {
   /** Тот же предел в байтах: значение для `@fastify/multipart`. */
   maxUploadBytes: number;
   /** Разрешённые источники CORS; `undefined` — отражать Origin запроса. */
-  corsOrigin: string[] | undefined;
+  corsOrigin: string[];
   /** Базовый URL OpenAI-совместимого API языковой модели. */
   llmBaseUrl: string;
   llmModel: string;
@@ -267,7 +277,7 @@ function toEnv(raw: RawEnv): Env {
     uploadDir: isAbsolute(raw.UPLOAD_DIR) ? raw.UPLOAD_DIR : resolve(workspaceRoot, raw.UPLOAD_DIR),
     maxUploadMb: raw.MAX_UPLOAD_MB,
     maxUploadBytes: raw.MAX_UPLOAD_MB * 1024 * 1024,
-    corsOrigin: parseOrigins(raw.CORS_ORIGIN),
+    corsOrigin: parseOrigins(raw.CORS_ORIGIN, raw.WEB_PORT),
     llmBaseUrl: raw.LLM_BASE_URL,
     llmModel: raw.LLM_MODEL,
     llmApiKey: raw.LLM_API_KEY,
@@ -286,10 +296,19 @@ function toEnv(raw: RawEnv): Env {
   };
 }
 
-/** `CORS_ORIGIN` — список источников через запятую; пусто — отражать Origin запроса. */
-function parseOrigins(value: string | undefined): string[] | undefined {
+/**
+ * `CORS_ORIGIN` — список источников через запятую.
+ *
+ * Пусто означает «только собственный веб», а не «отражать любой Origin»:
+ * аутентификации нет (A6), поэтому отражение Origin дало бы любому открытому
+ * сайту право читать профиль, материалы и расшифровки уроков через браузер
+ * пользователя.
+ */
+function parseOrigins(value: string | undefined, webPort: number): string[] {
+  const fallback = [`http://localhost:${webPort}`, `http://127.0.0.1:${webPort}`];
+
   if (value === undefined) {
-    return undefined;
+    return fallback;
   }
 
   const origins = value
@@ -297,7 +316,7 @@ function parseOrigins(value: string | undefined): string[] | undefined {
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
 
-  return origins.length > 0 ? origins : undefined;
+  return origins.length > 0 ? origins : fallback;
 }
 
 /** Конфигурация процесса: разбирается при первом импорте модуля. */
