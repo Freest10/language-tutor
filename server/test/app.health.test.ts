@@ -14,16 +14,6 @@ import { IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/db/connection.js'
 import { migrate } from '../src/db/migrate.js';
 import { parseBody } from '../src/lib/validate.js';
 
-/** Маршруты-заглушки: каждый обязан отвечать 501 с конвертом ошибки. */
-const STUB_ROUTES: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; url: string }[] = [
-  { method: 'POST', url: '/lessons/lesson-1/start' },
-  { method: 'POST', url: '/lessons/lesson-1/turns' },
-  { method: 'POST', url: '/lessons/lesson-1/steps/step-1/advance' },
-  { method: 'POST', url: '/lessons/lesson-1/exercises/exercise-1/attempts' },
-  { method: 'POST', url: '/lessons/lesson-1/complete' },
-  { method: 'GET', url: '/lessons/lesson-1/messages' },
-];
-
 /** Текст, который не должен попасть в ответ 500. */
 const SECRET_DETAIL = 'секрет: /Users/tester/data/app.db';
 
@@ -37,8 +27,8 @@ beforeAll(async () => {
 
   app = await buildApp();
 
-  // Настоящие маршруты пока заглушены, поэтому проверку схем, разбор тела
-  // и обработку неожиданного исключения вешаем на служебные маршруты.
+  // Проверку схем, разбор тела и обработку неожиданного исключения вешаем на
+  // служебные маршруты: прикладные эндпоинты проверяются своими тестами.
   app.post('/__test__/schema', { schema: { body: ttsRequestSchema } }, (request) => request.body);
   app.post('/__test__/parse-body', (request) => parseBody(request, ttsRequestSchema));
   app.get('/__test__/boom', () => {
@@ -73,19 +63,6 @@ describe('GET /api/config', () => {
     expect(config.version).toBe(APP_VERSION);
     expect(config.supportedLanguages.length).toBeGreaterThan(0);
     expect(config.limits.maxPageSize).toBeGreaterThan(0);
-  });
-});
-
-describe('маршруты-заглушки', () => {
-  it.each(STUB_ROUTES)('$method /api$url отвечает 501', async ({ method, url }) => {
-    const response = await app.inject({ method, url: `${API_PREFIX}${url}` });
-
-    expect(response.statusCode).toBe(501);
-
-    const body = apiErrorResponseSchema.parse(response.json());
-
-    expect(body.error.code).toBe('not_configured');
-    expect(body.error.details).toMatchObject({ reason: 'not_implemented' });
   });
 });
 

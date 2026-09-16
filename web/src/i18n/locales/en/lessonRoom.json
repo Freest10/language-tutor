@@ -1,5 +1,170 @@
 {
   "title": "Lesson room",
   "subtitle": "Voice dialogue, corrections and exercises of the current lesson.",
-  "lessonId": "Lesson: {{id}}"
+  "loading": "Loading the lesson and the dialogue…",
+  "actions": {
+    "openPlan": "Lesson plan",
+    "backToList": "All lessons",
+    "complete": "Finish the lesson",
+    "completing": "Summing up the lesson…"
+  },
+  "intro": {
+    "title": "The lesson has not started yet",
+    "description": "The tutor greets you, opens the first step of the plan and starts talking to you in the language you learn.",
+    "llmUnavailable": "The language model is not configured, so the lesson cannot start.",
+    "start": "Start the lesson",
+    "starting": "The tutor is opening the lesson…"
+  },
+  "transcript": {
+    "title": "Dialogue",
+    "logLabel": "Lesson dialogue",
+    "empty": "The dialogue has not started yet: say something or type the first line.",
+    "thinking": "The tutor is thinking about the answer…",
+    "truncated": "Only the latest lines are shown; the beginning of the dialogue is not loaded.",
+    "pending": "Sending…",
+    "notDelivered": "Not delivered",
+    "corrections": "Corrections to this line",
+    "roles": {
+      "user": "You",
+      "tutor": "Tutor",
+      "system": "System"
+    },
+    "sources": {
+      "voice": "voice",
+      "text": "text"
+    },
+    "actions": {
+      "speak": "Play aloud",
+      "retryTurn": "Send again"
+    }
+  },
+  "composer": {
+    "title": "Your line",
+    "label": "What you want to say",
+    "placeholder": "Type your line or hold the button and speak.",
+    "hint": "Ctrl+Enter sends the line. Holding the talk button interrupts the tutor.",
+    "voiceReady": "This is the recognised text: fix it if needed and send it.",
+    "send": "Send",
+    "sending": "The tutor is answering…",
+    "stopSpeaking": "Stop the tutor",
+    "errors": {
+      "empty": "The line is empty: type it or dictate it.",
+      "tooLong": "The line is longer than {{max}} characters."
+    },
+    "autoSpeak": {
+      "label": "Play the tutor's answers aloud",
+      "hint": "The choice is remembered in this browser."
+    }
+  },
+  "steps": {
+    "title": "Lesson plan",
+    "empty": "This lesson has no plan steps.",
+    "progress": "Step {{current}} of {{total}}.",
+    "progressDone": "{{done}} of {{total}} steps are done.",
+    "order": "Step {{number}}.",
+    "current": "Current",
+    "minutes_one": "about {{count}} minute",
+    "minutes_other": "about {{count}} minutes",
+    "actions": {
+      "advance": "Finish the step",
+      "advancing": "Moving to the next step…",
+      "skip": "Skip the step"
+    }
+  },
+  "exercise": {
+    "title": "Exercise",
+    "empty": "The tutor has not given an exercise yet: keep talking or move to the next step.",
+    "hints": "Hints",
+    "types": {
+      "translate": "Translation",
+      "fill_blank": "Fill in the gap",
+      "qa": "Question and answer",
+      "free_speech": "Free speech",
+      "multiple_choice": "Multiple choice"
+    },
+    "answer": {
+      "label": "Your answer",
+      "choiceLabel": "Pick one option",
+      "placeholder": "Type the answer.",
+      "hint": "The tutor checks the answer and explains the mistakes.",
+      "voiceHint": "Hold the talk button, then fix the recognised text and send it."
+    },
+    "actions": {
+      "submit": "Check the answer",
+      "checking": "The tutor is checking the answer…",
+      "next": "Next exercise",
+      "backToDialogue": "Back to the dialogue"
+    },
+    "errors": {
+      "empty": "The answer is empty: type it or dictate it.",
+      "noChoice": "Pick one of the options.",
+      "tooLong": "The answer is longer than {{max}} characters.",
+      "attemptFailed": "The answer could not be checked."
+    }
+  },
+  "feedback": {
+    "title": "Answer review",
+    "correct": "Correct",
+    "incorrect": "Not correct yet",
+    "score": "score {{percent}}%",
+    "noCorrections": "Nothing to correct here.",
+    "targetItem": "Practised item: {{item}}",
+    "categories": {
+      "grammar": "Grammar",
+      "vocabulary": "Vocabulary",
+      "pronunciation": "Pronunciation",
+      "fluency": "Fluency",
+      "spelling": "Spelling"
+    },
+    "severity": {
+      "minor": "minor",
+      "major": "major"
+    }
+  },
+  "summary": {
+    "title": "Lesson summary",
+    "accuracy": "accuracy {{percent}}%",
+    "exercises": "{{correct}} of {{total}} exercises",
+    "duration_one": "{{count}} minute",
+    "duration_other": "{{count}} minutes",
+    "strengths": "What worked well",
+    "weaknesses": "What to work on",
+    "recommendations": "What to do next time",
+    "newVocabulary": "New words of the lesson",
+    "vocabularyAdded": "Added to your vocabulary",
+    "vocabularyCount_one": "{{count}} word",
+    "vocabularyCount_other": "{{count}} words",
+    "vocabularyTerm": "Word",
+    "vocabularyTranslation": "Translation",
+    "errorsLogged_one": "{{count}} mistake went to the error journal",
+    "errorsLogged_other": "{{count}} mistakes went to the error journal",
+    "levelChange": {
+      "initial": "Your level is set: {{to}}.",
+      "up": "Your level moved up: {{from}} → {{to}}.",
+      "down": "Your level moved down: {{from}} → {{to}}.",
+      "reason": "Why: {{reason}}"
+    },
+    "actions": {
+      "progress": "Open the progress section",
+      "lessons": "All lessons"
+    }
+  },
+  "errors": {
+    "loadFailed": "The lesson could not be loaded.",
+    "notFound": "This lesson does not exist: it may have been deleted.",
+    "progressKept": "Nothing is lost: the dialogue stays on the server, you can try again.",
+    "notImplemented": "This part of the lesson is not implemented on the server yet.",
+    "notStarted": "The lesson has not started yet: start it before talking to the tutor.",
+    "alreadyCompleted": "The lesson is already finished: create a new one to keep practising.",
+    "stepNotFound": "This step is no longer in the plan: reload the page.",
+    "exerciseNotFound": "This exercise is no longer in the lesson: reload the page.",
+    "actions": {
+      "start": "The lesson could not be started.",
+      "turn": "The tutor did not answer your line.",
+      "advance": "The next step could not be opened.",
+      "attempt": "The answer could not be checked.",
+      "complete": "The lesson summary could not be built.",
+      "restore": "The dialogue could not be restored."
+    }
+  }
 }

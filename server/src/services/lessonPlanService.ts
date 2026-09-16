@@ -58,6 +58,10 @@ import {
   listLessons as selectLessons,
   replaceLessonPlan,
 } from '../repositories/lessonRepository.js';
+import {
+  listLessonAttempts,
+  listLessonExercises,
+} from '../repositories/lessonSessionRepository.js';
 import { findMaterialsByIds } from '../repositories/materialRepository.js';
 
 import * as learnerContext from './learnerContext.js';
@@ -418,13 +422,19 @@ export function listLessons(query: ListLessonsQuery): ListLessonsResponse {
 }
 
 /**
- * Урок целиком: план и материалы лежат в самом уроке.
+ * Урок целиком: план и материалы лежат в самом уроке, задания и попытки
+ * накапливаются по ходу занятия.
  *
- * Задания и попытки появляются только по ходу урока, поэтому их чтение добавляет
- * пакет проведения урока; до тех пор списки пусты.
+ * Читать их здесь обязательно: комната урока восстанавливается после
+ * перезагрузки именно отсюда, и с пустыми списками панель заданий осталась бы
+ * пустой до следующего хода.
  */
 export function getLesson(id: Id): GetLessonResponse {
-  return { lesson: requireLesson(id), exercises: [], attempts: [] };
+  return {
+    lesson: requireLesson(id),
+    exercises: listLessonExercises(id),
+    attempts: listLessonAttempts(id),
+  };
 }
 
 /** Шаг, к которому уже приступили: такой шаг — часть истории урока, а не заготовка. */
