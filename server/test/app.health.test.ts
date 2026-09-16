@@ -16,10 +16,6 @@ import { parseBody } from '../src/lib/validate.js';
 
 /** Маршруты-заглушки: каждый обязан отвечать 501 с конвертом ошибки. */
 const STUB_ROUTES: { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; url: string }[] = [
-  { method: 'GET', url: '/lessons' },
-  { method: 'POST', url: '/lessons' },
-  { method: 'GET', url: '/lessons/lesson-1' },
-  { method: 'POST', url: '/lessons/lesson-1/plan/regenerate' },
   { method: 'POST', url: '/lessons/lesson-1/start' },
   { method: 'POST', url: '/lessons/lesson-1/turns' },
   { method: 'POST', url: '/lessons/lesson-1/steps/step-1/advance' },

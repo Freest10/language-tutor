@@ -1,4 +1,179 @@
 {
   "title": "Прогресс",
-  "subtitle": "Словарь, ошибки и история уровня."
+  "subtitle": "Как тренажёр подстраивается под вас: уровень, словарь, ошибки и история.",
+  "summary": {
+    "title": "Сводка",
+    "error": "Не удалось загрузить сводку прогресса.",
+    "empty": "Показывать пока нечего: проведите первый урок, и страница наполнится.",
+    "updatedAt": "Данные на {{date}}",
+    "levelTitle": "Текущий уровень",
+    "levelValue": "{{level}} — {{name}}",
+    "levelConfidence": "уверенность {{percent}}",
+    "learningLanguage": "Изучаемый язык",
+    "practiceTitle": "Занятия",
+    "lessonsCompleted": "Уроков завершено",
+    "lessonsInProgress": "Уроков в работе",
+    "practiceMinutes": "Время практики",
+    "accuracyOverall": "Верных ответов за всё время",
+    "accuracyRecent": "Верных ответов в последних уроках",
+    "exercisesLabel": "Заданий выполнено",
+    "exercisesValue": "{{correct}} верно из {{total}}",
+    "streak": "Текущая серия",
+    "longestStreak": "Самая длинная серия",
+    "days_one": "{{count}} день",
+    "days_few": "{{count}} дня",
+    "days_many": "{{count}} дней",
+    "days_other": "{{count}} дня",
+    "vocabularyTitle": "Лексика",
+    "vocabularyCaption": "Слова по стадиям освоения",
+    "vocabularyTotal": "Всего слов",
+    "vocabularyColumn": "Стадия",
+    "vocabularyCountColumn": "Слов",
+    "errorsTitle": "Топ категорий ошибок",
+    "errorsCaption": "Ошибки по категориям",
+    "errorsEmpty": "Ошибок пока не записано.",
+    "errorsCategoryColumn": "Категория",
+    "errorsCountColumn": "Ошибок"
+  },
+  "level": {
+    "title": "Как подстраивается уровень",
+    "lead": "Уровень пересчитывается по результатам ваших уроков, а не произвольно.",
+    "lastChangeTitle": "Последнее изменение",
+    "noChange": "Уровень ещё ни разу не пересчитывался.",
+    "reasonLabel": "Почему",
+    "transition": "{{from}} → {{to}}",
+    "initialTransition": "{{to}}",
+    "changedAt": "Изменён {{date}}",
+    "directionLabel": "Изменение",
+    "direction": {
+      "initial": "Уровень задан",
+      "up": "Уровень повышен",
+      "down": "Уровень понижен"
+    },
+    "sourceLabel": "Источник",
+    "source": {
+      "placement": "определено тестом",
+      "progress": "по результатам занятий",
+      "manual": "задано вручную"
+    },
+    "confidence": "Уверенность в оценке",
+    "metricsTitle": "На чём основано решение",
+    "metrics": {
+      "accuracy": "Верных ответов в окне",
+      "lessonsConsidered": "Уроков в окне",
+      "lessonsSinceLastChange": "Уроков с прошлого изменения",
+      "exercisesEvaluated": "Учтено ответов",
+      "window": "Окно: {{from}} — {{to}}"
+    },
+    "eligibilityTitle": "Ближайший пересчёт",
+    "eligibility": {
+      "can": "Уровень может быть пересчитан прямо сейчас.",
+      "cannot": "Уровень пока не пересчитывается.",
+      "remaining_one": "Осталось {{count}} завершённый урок.",
+      "remaining_few": "Осталось {{count}} завершённых урока.",
+      "remaining_many": "Осталось {{count}} завершённых уроков.",
+      "remaining_other": "Осталось {{count}} завершённых урока.",
+      "lessonsSinceChange": "Уроков завершено с последнего изменения",
+      "policy": "Правила: не меньше {{minLessons}} завершённых уроков, окно в {{window}} уроков, повышение от {{promote}} верных ответов, понижение ниже {{demote}}, не больше чем на {{maxSteps}} ступень CEFR за раз."
+    }
+  },
+  "vocabulary": {
+    "title": "Лексика",
+    "lead": "Слова и выражения, которые тренажёр собрал из ваших уроков.",
+    "caption": "Личный словарь",
+    "error": "Не удалось загрузить словарь.",
+    "empty": "Слов пока нет: они появляются по ходу уроков.",
+    "emptyFiltered": "Под текущие фильтры не подходит ни одно слово.",
+    "resetFilters": "Сбросить фильтры",
+    "updating": "Обновляем список…",
+    "searchLabel": "Поиск по слову или переводу",
+    "searchSubmit": "Найти",
+    "searchClear": "Очистить поиск",
+    "statusLabel": "Стадия",
+    "statusAll": "Все стадии",
+    "sortLabel": "Сортировка",
+    "sort": {
+      "recent": "По дате встречи",
+      "alphabetical": "По алфавиту",
+      "timesSeen": "По числу встреч"
+    },
+    "orderLabel": "Направление",
+    "order": {
+      "asc": "По возрастанию",
+      "desc": "По убыванию"
+    },
+    "status": {
+      "new": "Новое",
+      "learning": "В работе",
+      "known": "Освоено"
+    },
+    "columns": {
+      "term": "Слово",
+      "translation": "Перевод",
+      "status": "Стадия",
+      "timesSeen": "Ответы",
+      "lastSeenAt": "Последняя встреча",
+      "lesson": "Урок"
+    },
+    "timesSeenValue": "{{correct}} верных из {{seen}}",
+    "lessonLink": "Открыть урок",
+    "noLesson": "Урок не указан",
+    "range": "Показаны {{from}}–{{to}} из {{total}}",
+    "previousPage": "Предыдущая страница",
+    "nextPage": "Следующая страница"
+  },
+  "errors": {
+    "title": "Журнал ошибок",
+    "lead": "Каждое исправление с объяснением и уроком, где оно возникло.",
+    "error": "Не удалось загрузить журнал ошибок.",
+    "empty": "Ошибок пока не записано — они появятся после первых уроков.",
+    "emptyFiltered": "Под текущие фильтры не подходит ни одна запись.",
+    "resetFilters": "Сбросить фильтры",
+    "updating": "Обновляем журнал…",
+    "categoryLabel": "Категория",
+    "categoryAll": "Все категории",
+    "categoryOption": "{{category}}: {{count}}",
+    "periodLabel": "Период",
+    "period": {
+      "all": "За всё время",
+      "week": "Последние 7 дней",
+      "month": "Последние 30 дней",
+      "quarter": "Последние 90 дней"
+    },
+    "category": {
+      "grammar": "Грамматика",
+      "vocabulary": "Лексика",
+      "pronunciation": "Произношение",
+      "fluency": "Беглость",
+      "spelling": "Орфография"
+    },
+    "groupCaption": "Ошибки в категории «{{category}}»",
+    "columns": {
+      "occurredAt": "Когда",
+      "original": "Было сказано",
+      "corrected": "Исправление",
+      "explanation": "Объяснение",
+      "lesson": "Урок"
+    },
+    "severity": {
+      "minor": "не мешает пониманию",
+      "major": "мешает пониманию"
+    },
+    "noCorrection": "Исправленного варианта нет",
+    "lessonLink": "Открыть урок",
+    "noLesson": "Урок не указан",
+    "range": "Показаны {{from}}–{{to}} из {{total}}",
+    "previousPage": "Предыдущая страница",
+    "nextPage": "Следующая страница"
+  },
+  "timeline": {
+    "title": "История уровня",
+    "lead": "Каждое изменение уровня вместе с его обоснованием.",
+    "error": "Не удалось загрузить историю уровня.",
+    "empty": "Уровень ещё не менялся: первая запись появится после теста или первых уроков.",
+    "listLabel": "Изменения уровня, от свежих к давним",
+    "entryLabel": "{{direction}} — {{date}}",
+    "loadMore": "Показать более ранние изменения",
+    "range": "{{shown}} из {{total}} записей"
+  }
 }

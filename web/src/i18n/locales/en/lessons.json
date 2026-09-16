@@ -1,9 +1,236 @@
 {
   "title": "Lessons",
   "subtitle": "List of lessons and the plan of the selected lesson.",
+  "status": {
+    "draft": "Draft",
+    "in_progress": "In progress",
+    "completed": "Completed"
+  },
+  "stepTypes": {
+    "warmup": {
+      "label": "Warm-up",
+      "hint": "A short conversation that switches you into the language you learn."
+    },
+    "vocabulary": {
+      "label": "Vocabulary",
+      "hint": "New words and phrases: meaning, examples and first attempts to use them."
+    },
+    "grammar": {
+      "label": "Grammar",
+      "hint": "One construction explained and practised in your own sentences."
+    },
+    "reading": {
+      "label": "Reading",
+      "hint": "A fragment of a material with questions about its content."
+    },
+    "listening": {
+      "label": "Listening",
+      "hint": "The tutor reads a text aloud and checks how much you understood."
+    },
+    "speaking": {
+      "label": "Speaking",
+      "hint": "A free dialogue on the topic of the lesson with corrections afterwards."
+    },
+    "exercise": {
+      "label": "Exercise",
+      "hint": "Tasks with a checkable answer: gaps, choices, translations."
+    },
+    "wrapup": {
+      "label": "Wrap-up",
+      "hint": "A summary of the lesson: what worked, what to repeat next time."
+    }
+  },
+  "stepStatus": {
+    "pending": "Not started",
+    "in_progress": "In progress",
+    "completed": "Done",
+    "skipped": "Skipped"
+  },
+  "errors": {
+    "notConfigured": "The language model is not configured, so a lesson plan cannot be generated. Check the provider and the model in .env and restart the server.",
+    "upstreamUnavailable": "The language model is unavailable: usually it is stopped or busy with another request.",
+    "upstreamError": "The language model returned an answer the application could not read.",
+    "setupHint": "Planning runs through a language model: set LLM_PROVIDER, the model and, if the provider needs one, the API key in .env, then restart the server.",
+    "materialsNotReady": "Some of the picked materials have no extracted text yet, so the lesson was not created.",
+    "materialNotFound": "One of the picked materials no longer exists: refresh the list of materials.",
+    "lessonCompleted": "The lesson is already finished, so its plan cannot be rebuilt. Create a new lesson instead.",
+    "lessonPlanFull": "The plan already has the maximum number of steps, so a new one cannot be added. Rebuild it without keeping the finished steps, or create a new lesson."
+  },
+  "list": {
+    "title": "Your lessons",
+    "summary": "Showing {{shown}} of {{total}}.",
+    "error": "The lessons could not be loaded.",
+    "loadMore": "Show more",
+    "emptyFiltered": "There are no lessons with this status.",
+    "empty": {
+      "title": "No lessons yet",
+      "description": "Create the first lesson: the tutor builds a plan from your level, your goals and the materials you uploaded.",
+      "action": "Create the first lesson"
+    },
+    "filter": {
+      "label": "Status",
+      "all": "All"
+    },
+    "fields": {
+      "createdAt": "Created {{date}}",
+      "topic": "Topic: {{topic}}",
+      "duration": "{{minutes}} min",
+      "level": "level {{level}}",
+      "steps_one": "{{count}} step",
+      "steps_other": "{{count}} steps"
+    },
+    "noTopic": "no topic",
+    "actions": {
+      "start": "Start the lesson",
+      "continue": "Continue",
+      "review": "Open the lesson",
+      "openPlan": "Open the plan"
+    }
+  },
+  "create": {
+    "open": "New lesson",
+    "title": "New lesson",
+    "description": "The tutor plans the lesson itself. Every field is optional: without them the plan is built from your profile.",
+    "submit": "Generate the plan",
+    "llm": {
+      "checking": "Checking whether the language model is ready…",
+      "unknown": "The server configuration is unavailable, so it is unknown whether the language model is ready. You can still try to generate the plan.",
+      "unavailable": {
+        "title": "The language model is not configured",
+        "description": "A lesson plan is written by a language model. Set the provider and the model in .env, restart the server and come back."
+      }
+    },
+    "topic": {
+      "label": "Topic of the lesson",
+      "placeholder": "A job interview, ordering in a cafe, past tenses",
+      "hint": "Leave it empty, and the tutor picks a topic from your goals and interests."
+    },
+    "focus": {
+      "label": "What to focus on",
+      "hint": "Pick the kinds of steps the lesson should give more time to."
+    },
+    "duration": {
+      "label": "Duration of the lesson"
+    },
+    "generating": {
+      "title": "The model is building the plan…",
+      "description": "A local model needs tens of seconds for this. Keep the window open: closing it cancels the request.",
+      "model": "Model: {{model}}"
+    },
+    "errors": {
+      "failed": "The lesson could not be created."
+    },
+    "notReady": {
+      "description": "Their text has not been extracted, so the tutor has nothing to read. Unselect them or fix them in the materials section, then try again."
+    }
+  },
+  "materials": {
+    "label": "Materials of the lesson",
+    "hint": "The tutor builds the steps around the fragments of the materials you pick. Only processed materials can be used.",
+    "loading": "Loading the materials…",
+    "error": "The materials could not be loaded.",
+    "loadMore": "Show more materials ({{shown}} of {{total}})",
+    "selected_one": "{{count}} material selected, at most {{max}}.",
+    "selected_other": "{{count}} materials selected, at most {{max}}.",
+    "limitReached": "The limit of {{max}} materials per lesson is reached: unselect one to pick another.",
+    "empty": {
+      "description": "There are no materials yet: the lesson will be built without them.",
+      "action": "Add a material"
+    },
+    "status": {
+      "pending": {
+        "label": "Queued",
+        "hint": "The material is waiting for its text to be extracted, so it cannot be used yet."
+      },
+      "processing": {
+        "label": "Processing",
+        "hint": "The text is being extracted right now; the material becomes available once it is done."
+      },
+      "ready": {
+        "label": "Ready",
+        "hint": "The text has been extracted, the material can be used in the lesson."
+      },
+      "error_no_text_layer": {
+        "label": "PDF without a text layer",
+        "hint": "The pages of this PDF are images (a scan), so there is no text to build a lesson from. Upload a PDF whose text can be selected, or paste the text by hand."
+      },
+      "error_unsupported_format": {
+        "label": "Unsupported format",
+        "hint": "Text can only be extracted from TXT, MD and PDF files, so this material cannot be used."
+      },
+      "error_too_large": {
+        "label": "Too large",
+        "hint": "The file is bigger than the server accepts, so its text was not extracted."
+      },
+      "error_extraction_failed": {
+        "label": "Extraction failed",
+        "hint": "The file could not be read to the end, so there is no text for the lesson."
+      }
+    }
+  },
   "plan": {
     "title": "Lesson plan",
     "subtitle": "Steps of the lesson before it starts.",
-    "lessonId": "Lesson: {{id}}"
+    "loading": "Loading the lesson…",
+    "empty": "There is no such lesson.",
+    "errors": {
+      "notFound": "The lesson was not found: it may have been created in another database.",
+      "loadFailed": "The lesson could not be loaded."
+    },
+    "actions": {
+      "start": "Start the lesson",
+      "backToList": "All lessons"
+    },
+    "fields": {
+      "level": "Level",
+      "duration": "Planned duration",
+      "topic": "Topic",
+      "steps": "Steps",
+      "stepsValue_one": "{{count}} step, {{minutes}} min in total",
+      "stepsValue_other": "{{count}} steps, {{minutes}} min in total",
+      "materials": "Materials",
+      "materialsValue_one": "{{count}} material",
+      "materialsValue_other": "{{count}} materials",
+      "createdAt": "Created",
+      "goals": "Goals of the lesson"
+    },
+    "steps": {
+      "title": "Steps of the lesson",
+      "empty": "This lesson has no steps: regenerate the plan.",
+      "order": "Step {{number}}.",
+      "current": "Current step",
+      "objectives": "What this step teaches",
+      "targetItems": "Words and constructions",
+      "minutes_one": "{{count}} min",
+      "minutes_other": "{{count}} min",
+      "chunks_one": "{{count}} fragment of the materials",
+      "chunks_other": "{{count}} fragments of the materials",
+      "noChunks": "without materials",
+      "exercises_one": "{{count}} exercise",
+      "exercises_other": "{{count}} exercises"
+    },
+    "regenerate": {
+      "title": "Rebuild the plan",
+      "description": "If the plan does not fit, tell what to change: the model writes it again.",
+      "submit": "Rebuild the plan",
+      "unavailable": "The plan cannot be rebuilt: the language model is not configured.",
+      "feedback": {
+        "label": "What to change",
+        "placeholder": "More speaking, less grammar; keep the topic",
+        "hint": "Optional: without a comment the model simply plans the lesson again."
+      },
+      "keepCompleted": {
+        "label": "Keep the steps that are already started or finished",
+        "hint": "Only the steps that have not started yet are replanned; the rest stay as they are."
+      },
+      "pending": {
+        "title": "The model is rebuilding the plan…",
+        "description": "A local model needs tens of seconds for this. The current plan stays on screen until the new one arrives.",
+        "model": "Model: {{model}}"
+      },
+      "errors": {
+        "failed": "The plan could not be rebuilt."
+      }
+    }
   }
 }

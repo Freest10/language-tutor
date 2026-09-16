@@ -1,4 +1,175 @@
 {
   "title": "Progress",
-  "subtitle": "Vocabulary, mistakes and level history."
+  "subtitle": "How the tutor adapts to you: level, vocabulary, mistakes and history.",
+  "summary": {
+    "title": "Overview",
+    "error": "The progress summary could not be loaded.",
+    "empty": "Nothing to show yet: finish your first lesson and this page will fill up.",
+    "updatedAt": "Data as of {{date}}",
+    "levelTitle": "Current level",
+    "levelValue": "{{level}} — {{name}}",
+    "levelConfidence": "confidence {{percent}}",
+    "learningLanguage": "Language being learned",
+    "practiceTitle": "Practice",
+    "lessonsCompleted": "Lessons completed",
+    "lessonsInProgress": "Lessons in progress",
+    "practiceMinutes": "Time practised",
+    "accuracyOverall": "Correct answers, all time",
+    "accuracyRecent": "Correct answers, recent lessons",
+    "exercisesLabel": "Exercises answered",
+    "exercisesValue": "{{correct}} correct out of {{total}}",
+    "streak": "Current streak",
+    "longestStreak": "Longest streak",
+    "days_one": "{{count}} day",
+    "days_other": "{{count}} days",
+    "vocabularyTitle": "Vocabulary",
+    "vocabularyCaption": "Words by stage",
+    "vocabularyTotal": "Words in total",
+    "vocabularyColumn": "Stage",
+    "vocabularyCountColumn": "Words",
+    "errorsTitle": "Top mistake categories",
+    "errorsCaption": "Mistakes by category",
+    "errorsEmpty": "No mistakes recorded yet.",
+    "errorsCategoryColumn": "Category",
+    "errorsCountColumn": "Mistakes"
+  },
+  "level": {
+    "title": "How the level is adjusted",
+    "lead": "The tutor recalculates the level from your lesson results, never at random.",
+    "lastChangeTitle": "Last change",
+    "noChange": "The level has not been recalculated yet.",
+    "reasonLabel": "Why",
+    "transition": "{{from}} → {{to}}",
+    "initialTransition": "{{to}}",
+    "changedAt": "Changed on {{date}}",
+    "directionLabel": "Change",
+    "direction": {
+      "initial": "Level set",
+      "up": "Level raised",
+      "down": "Level lowered"
+    },
+    "sourceLabel": "Source",
+    "source": {
+      "placement": "determined by the placement test",
+      "progress": "based on lesson results",
+      "manual": "set manually"
+    },
+    "confidence": "Confidence in the estimate",
+    "metricsTitle": "What the decision was based on",
+    "metrics": {
+      "accuracy": "Correct answers in the window",
+      "lessonsConsidered": "Lessons in the window",
+      "lessonsSinceLastChange": "Lessons since the previous change",
+      "exercisesEvaluated": "Answers counted",
+      "window": "Window: {{from}} — {{to}}"
+    },
+    "eligibilityTitle": "Next recalculation",
+    "eligibility": {
+      "can": "The level can be recalculated now.",
+      "cannot": "The level is not up for recalculation yet.",
+      "remaining_one": "{{count}} more completed lesson to go.",
+      "remaining_other": "{{count}} more completed lessons to go.",
+      "lessonsSinceChange": "Lessons completed since the last change",
+      "policy": "Rules: at least {{minLessons}} completed lessons, a window of {{window}} lessons, the level goes up from {{promote}} correct answers and down below {{demote}}, by no more than {{maxSteps}} CEFR step at a time."
+    }
+  },
+  "vocabulary": {
+    "title": "Vocabulary",
+    "lead": "Words and phrases the tutor picked up from your lessons.",
+    "caption": "Personal vocabulary",
+    "error": "The vocabulary could not be loaded.",
+    "empty": "No words yet: they appear as lessons go on.",
+    "emptyFiltered": "No words match the current filters.",
+    "resetFilters": "Reset filters",
+    "updating": "Updating the list…",
+    "searchLabel": "Search by word or translation",
+    "searchSubmit": "Find",
+    "searchClear": "Clear the search",
+    "statusLabel": "Stage",
+    "statusAll": "All stages",
+    "sortLabel": "Sort by",
+    "sort": {
+      "recent": "Recently seen",
+      "alphabetical": "Alphabetically",
+      "timesSeen": "Times seen"
+    },
+    "orderLabel": "Direction",
+    "order": {
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "status": {
+      "new": "New",
+      "learning": "Learning",
+      "known": "Known"
+    },
+    "columns": {
+      "term": "Word",
+      "translation": "Translation",
+      "status": "Stage",
+      "timesSeen": "Answers",
+      "lastSeenAt": "Last seen",
+      "lesson": "Lesson"
+    },
+    "timesSeenValue": "{{correct}} of {{seen}} correct",
+    "lessonLink": "Open the lesson",
+    "noLesson": "No lesson linked",
+    "range": "Showing {{from}}–{{to}} of {{total}}",
+    "previousPage": "Previous page",
+    "nextPage": "Next page"
+  },
+  "errors": {
+    "title": "Mistake journal",
+    "lead": "Every correction with its explanation and the lesson it came from.",
+    "error": "The mistake journal could not be loaded.",
+    "empty": "No mistakes recorded yet — they appear after your first lessons.",
+    "emptyFiltered": "No mistakes match the current filters.",
+    "resetFilters": "Reset filters",
+    "updating": "Updating the journal…",
+    "categoryLabel": "Category",
+    "categoryAll": "All categories",
+    "categoryOption": "{{category}}: {{count}}",
+    "periodLabel": "Period",
+    "period": {
+      "all": "All time",
+      "week": "Last 7 days",
+      "month": "Last 30 days",
+      "quarter": "Last 90 days"
+    },
+    "category": {
+      "grammar": "Grammar",
+      "vocabulary": "Vocabulary",
+      "pronunciation": "Pronunciation",
+      "fluency": "Fluency",
+      "spelling": "Spelling"
+    },
+    "groupCaption": "Mistakes in the category “{{category}}”",
+    "columns": {
+      "occurredAt": "When",
+      "original": "You said",
+      "corrected": "Correction",
+      "explanation": "Explanation",
+      "lesson": "Lesson"
+    },
+    "severity": {
+      "minor": "does not block understanding",
+      "major": "blocks understanding"
+    },
+    "noCorrection": "No corrected version",
+    "lessonLink": "Open the lesson",
+    "noLesson": "No lesson linked",
+    "range": "Showing {{from}}–{{to}} of {{total}}",
+    "previousPage": "Previous page",
+    "nextPage": "Next page"
+  },
+  "timeline": {
+    "title": "Level history",
+    "lead": "Every change of the level with the reason behind it.",
+    "error": "The level history could not be loaded.",
+    "empty": "The level has not changed yet: the first entry appears after the placement test or your first lessons.",
+    "listLabel": "Level changes, most recent first",
+    "entryLabel": "{{direction}} on {{date}}",
+    "loadMore": "Show earlier changes",
+    "range": "{{shown}} of {{total}} entries"
+  }
 }
