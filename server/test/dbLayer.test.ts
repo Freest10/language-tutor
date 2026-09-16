@@ -136,6 +136,7 @@ function bareMaterial(): Material {
     level: undefined,
     charCount: 0,
     chunkCount: 0,
+    coveredChunkCount: 0,
     pageCount: undefined,
     topics: [],
     summary: undefined,

@@ -124,6 +124,62 @@ export function findLessonMaterialIds(lessonId: Id): Id[] {
   return rowsToLessonMaterialIds(rows);
 }
 
+/** Настройки выборки пройденного материала. */
+export interface CoveredChunkOptions {
+  /**
+   * Урок, шаги которого в «пройденное» не входят.
+   *
+   * Нужен пересборке плана: собственные завершённые шаги урока исключать нельзя,
+   * иначе урок начнёт избегать материала, на котором сам и построен.
+   */
+  excludeLessonId?: Id;
+}
+
+/**
+ * Фрагменты материалов, которые ученик уже отработал, — по всем урокам сразу.
+ *
+ * Пройденным фрагмент делает только шаг со статусом `completed`. Шаг `skipped`
+ * пройденным НЕ считается: ученик его пропустил, а не отработал, и материал
+ * обязан вернуться в следующий урок; `pending` и `in_progress` — тем более.
+ * То же правило применяет счётчик `coveredChunkCount` в `materialRepository.ts`.
+ *
+ * Шаги отбираются по материалам урока (`lesson_materials`), поэтому в множество
+ * попадают и фрагменты соседних материалов того же урока: как признак «это уже
+ * пройдено» они безвредны, а лишнего запроса за принадлежностью фрагментов
+ * отбор не стоит. Сами идентификаторы достаются маппером — колонка шага хранит
+ * их JSON-массивом, и разбирать её где-то ещё нельзя.
+ */
+export function findCoveredChunkIds(
+  materialIds: readonly Id[],
+  options: CoveredChunkOptions = {},
+): Set<Id> {
+  const covered = new Set<Id>();
+
+  if (materialIds.length === 0) {
+    return covered;
+  }
+
+  const placeholders = materialIds.map(() => '?').join(', ');
+  const excluded = options.excludeLessonId;
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT steps.* FROM lesson_plan_steps steps
+         JOIN lesson_materials link ON link.lesson_id = steps.lesson_id
+        WHERE steps.status = 'completed'
+          AND link.material_id IN (${placeholders})
+          ${excluded === undefined ? '' : 'AND steps.lesson_id <> ?'}`,
+    )
+    .all(...materialIds, ...(excluded === undefined ? [] : [excluded])) as LessonPlanStepRow[];
+
+  for (const row of rows) {
+    for (const chunkId of rowToLessonPlanStep(row).materialChunkIds) {
+      covered.add(chunkId);
+    }
+  }
+
+  return covered;
+}
+
 /** Урок вместе с планом и материалами; `undefined` — урока нет. */
 export function findLessonById(id: Id): Lesson | undefined {
   const row = getDb().prepare('SELECT * FROM lessons WHERE id = ?').get(id) as

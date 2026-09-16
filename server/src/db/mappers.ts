@@ -220,8 +220,18 @@ export function learnerProfileToRow(
 // Материалы
 // ---------------------------------------------------------------------------
 
-/** Материал из строки таблицы. */
-export function rowToMaterial(row: MaterialRow): Material {
+/** Счётчики материала, которых нет в его строке: считаются по другим таблицам. */
+export interface MaterialCounters {
+  /**
+   * Сколько фрагментов материала уже отработано на уроках (`coveredChunkCount`).
+   * Считается по шагам планов, поэтому передаётся снаружи; по умолчанию 0 —
+   * «ничего не пройдено».
+   */
+  coveredChunkCount?: number;
+}
+
+/** Материал из строки таблицы и счётчиков по связанным таблицам. */
+export function rowToMaterial(row: MaterialRow, counters: MaterialCounters = {}): Material {
   return {
     id: row.id,
     title: row.title,
@@ -235,6 +245,7 @@ export function rowToMaterial(row: MaterialRow): Material {
     level: row.level as CefrLevel | null,
     charCount: row.char_count,
     chunkCount: row.chunk_count,
+    coveredChunkCount: counters.coveredChunkCount ?? 0,
     pageCount: row.page_count,
     topics: parseJsonArray<string>(row.topics, 'materials.topics'),
     summary: row.summary,

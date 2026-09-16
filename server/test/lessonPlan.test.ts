@@ -193,6 +193,72 @@ function seedBrokenMaterial(id: Id): Id {
   return id;
 }
 
+/**
+ * Кладёт в базу готовый материал с заданным числом фрагментов.
+ *
+ * Фрагменты создаются вручную, а не разбиением текста: тесту про пройденное важны
+ * их идентификаторы и их количество, а не то, как чанкер поделит абзацы.
+ *
+ * @returns идентификаторы фрагментов в порядке чтения
+ */
+function seedMaterial(id: Id, chunkCount: number): Id[] {
+  const db = getDb();
+  const now = '2026-09-01T10:00:00.000Z';
+
+  db.prepare(
+    `INSERT INTO materials (
+       id, title, source_type, status, status_message, original_file_name, file_path,
+       mime_type, size_bytes, language, level, char_count, chunk_count, page_count,
+       topics, summary, created_at, updated_at
+     ) VALUES (@id, 'Учебник', 'txt', 'ready', NULL, 'lehrbuch.txt', NULL,
+       'text/plain', 4096, 'de', 'B1', @chars, @chunks, NULL, '[]', NULL, @now, @now)`,
+  ).run({ id, chars: chunkCount * 100, chunks: chunkCount, now });
+
+  const insert = db.prepare(
+    `INSERT INTO material_chunks (id, material_id, "order", content, char_count, page,
+       heading, created_at)
+     VALUES (@id, @material_id, @order, @content, @char_count, NULL, NULL, @created_at)`,
+  );
+  const chunkIds: Id[] = [];
+
+  for (let order = 0; order < chunkCount; order += 1) {
+    const chunkId = `${id}-c${String(order)}`;
+    const content = `Übung ${String(order + 1)}: Anna kauft Brot und bezahlt an der Kasse.`;
+
+    insert.run({
+      id: chunkId,
+      material_id: id,
+      order,
+      content,
+      char_count: content.length,
+      created_at: now,
+    });
+    chunkIds.push(chunkId);
+  }
+
+  return chunkIds;
+}
+
+/** План из четырёх шагов, где шаг чтения опирается на перечисленные метки фрагментов. */
+function planWithRefs(materialRefs: string[]): object {
+  return planReply([
+    step({ type: 'warmup', title: 'Разминка', estimatedMinutes: 4 }),
+    step({ type: 'reading', title: 'Читаем учебник', materialRefs, estimatedMinutes: 6 }),
+    step({ type: 'speaking', title: 'Говорим сами', estimatedMinutes: 6 }),
+    step({ type: 'wrapup', title: 'Итоги', estimatedMinutes: 4 }),
+  ]);
+}
+
+/** Все фрагменты, на которых построены перечисленные шаги плана. */
+function chunkIdsOf(steps: readonly { materialChunkIds: Id[] }[]): Id[] {
+  return steps.flatMap((planStep) => planStep.materialChunkIds);
+}
+
+/** Ставит шагу плана произвольный статус: пройденным материал делает только `completed`. */
+function setStepStatus(stepId: Id, status: string): void {
+  getDb().prepare('UPDATE lesson_plan_steps SET status = ? WHERE id = ?').run(status, stepId);
+}
+
 /** Помечает шаги плана пройденными и переводит урок в статус «идёт». */
 function markStepsCompleted(lessonId: Id, stepIds: readonly Id[], currentStepId: Id): void {
   const db = getDb();
@@ -377,6 +443,30 @@ describe('POST /api/lessons', () => {
     expect(countRows('lessons')).toBe(0);
     expect(countRows('lesson_plan_steps')).toBe(0);
     expect(countRows('lesson_materials')).toBe(0);
+  });
+
+  it('отвечает 502 и называет модель, которой нет у провайдера', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: "model 'qwen3:8b' not found" } }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    );
+
+    const response = await app.inject({ method: 'POST', url: LESSONS_URL, payload: {} });
+
+    expect(response.statusCode).toBe(502);
+
+    const body = apiErrorResponseSchema.parse(response.json());
+
+    expect(body.error.details).toMatchObject({ reason: 'llm_model_not_found' });
+    expect(body.error.message).toContain('qwen3:8b');
+    expect(body.error.message).toContain('LLM_MODEL');
+    expect(countRows('lessons')).toBe(0);
   });
 
   it('отвечает 400 и называет материал, из которого не извлечён текст', async () => {
@@ -683,5 +773,118 @@ describe('POST /api/lessons/:id/plan/regenerate', () => {
     });
 
     expect(response.statusCode).toBe(404);
+  });
+});
+
+describe('учёт пройденного материала', () => {
+  const MATERIAL_ID = 'material-lehrbuch';
+
+  /** Метки всех четырёх фрагментов: сколько из них дойдёт до плана, решает отбор. */
+  const ALL_REFS = ['C1', 'C2', 'C3', 'C4'];
+
+  it('не отдаёт новому уроку фрагменты из завершённых шагов прошлого', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS));
+
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+    const readingStep = first.plan[1];
+
+    expect(readingStep?.materialChunkIds).toEqual(chunkIds.slice(0, 2));
+
+    markStepsCompleted(first.id, [String(readingStep?.id)], String(first.plan[2]?.id));
+
+    const second = await createLesson({ materialIds: [MATERIAL_ID] });
+    // Проверка по фактическим фрагментам плана, а не по тексту промпта: в урок
+    // попало только то, что ученик ещё не отрабатывал.
+    const used = chunkIdsOf(second.plan);
+
+    expect(used).toEqual(chunkIds.slice(2));
+    expect(used).not.toContain(chunkIds[0]);
+    expect(used).not.toContain(chunkIds[1]);
+  });
+
+  it('возвращает в следующий урок фрагменты пропущенного шага', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS));
+
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    // Шаг пропущен, а не отработан: его материал обязан вернуться в следующий урок.
+    setStepStatus(String(first.plan[1]?.id), 'skipped');
+
+    const second = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    expect(chunkIdsOf(second.plan)).toEqual(chunkIds);
+  });
+
+  it('берёт пройденное, когда об этом просят явно', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS));
+
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    markStepsCompleted(first.id, [String(first.plan[1]?.id)], String(first.plan[2]?.id));
+
+    const second = await createLesson({
+      materialIds: [MATERIAL_ID],
+      includeCoveredMaterial: true,
+    });
+
+    expect(chunkIdsOf(second.plan)).toEqual(chunkIds);
+  });
+
+  it('строит повторение на полностью пройденном материале и говорит об этом модели', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+    const fetchMock = stubLlm(planWithRefs(ALL_REFS), planWithRefs(ALL_REFS));
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    expect(first.plan[1]?.materialChunkIds).toEqual(chunkIds);
+    expect(promptOf(fetchMock, 0)).not.toContain('already worked through all of this material');
+
+    markStepsCompleted(first.id, [String(first.plan[1]?.id)], String(first.plan[2]?.id));
+
+    const second = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    // Материал отработан целиком: урок всё равно строится на нём, но как повторение.
+    expect(chunkIdsOf(second.plan)).toEqual(chunkIds);
+
+    const prompt = promptOf(fetchMock, 1);
+
+    expect(prompt).toContain('already worked through all of this material');
+    expect(prompt).toContain('this lesson is a revision');
+  });
+
+  it('не считает пройденными собственные шаги пересобираемого урока', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS));
+
+    const lesson = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    markStepsCompleted(lesson.id, [String(lesson.plan[1]?.id)], String(lesson.plan[2]?.id));
+
+    const updated = await regeneratePlan(lesson.id);
+
+    // Пересборка не избегает материала, на котором урок и построен: новым шагам
+    // доступны все фрагменты, включая отработанные в этом же уроке.
+    expect(chunkIdsOf(updated.plan.slice(1))).toEqual(chunkIds);
+  });
+
+  it('исключает пройденное в другом уроке при пересборке плана', async () => {
+    const chunkIds = seedMaterial(MATERIAL_ID, 4);
+
+    stubLlm(planWithRefs(['C1', 'C2']), planWithRefs(ALL_REFS), planWithRefs(ALL_REFS));
+
+    const first = await createLesson({ materialIds: [MATERIAL_ID] });
+
+    markStepsCompleted(first.id, [String(first.plan[1]?.id)], String(first.plan[2]?.id));
+
+    const second = await createLesson({ materialIds: [MATERIAL_ID] });
+    const updated = await regeneratePlan(second.id);
+
+    expect(chunkIdsOf(updated.plan)).toEqual(chunkIds.slice(2));
   });
 });

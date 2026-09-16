@@ -80,6 +80,7 @@ function material(overrides: Partial<Material> & Pick<Material, 'id' | 'title'>)
     level: 'B1',
     charCount: 1200,
     chunkCount: 3,
+    coveredChunkCount: 0,
     pageCount: null,
     topics: [],
     summary: null,
@@ -812,5 +813,117 @@ describe('обработка материала на сервере', () => {
     const ru = [...new Set(translationKeys(resources.ru.materials))].sort();
 
     expect(ru).toEqual(en);
+  });
+});
+
+describe('пройденный материал', () => {
+  /** Материал, часть которого уже отработана на уроках. */
+  function covered(overrides: Partial<Material> = {}): Material {
+    return material({
+      id: 'm-covered',
+      title: 'Oxford Navigate B1',
+      chunkCount: 185,
+      coveredChunkCount: 12,
+      ...overrides,
+    });
+  }
+
+  /** Поднимает раздел материалов с единственным материалом в списке. */
+  function renderList(item: Material) {
+    stubFetch((record) =>
+      record.url.includes('/config')
+        ? jsonResponse(CONFIG_FIXTURE)
+        : jsonResponse(listPage([item])),
+    );
+
+    return renderMaterials();
+  }
+
+  it('показывает, сколько фрагментов материала уже пройдено', async () => {
+    renderList(covered());
+
+    await screen.findByRole('heading', { level: 3, name: 'Oxford Navigate B1' });
+
+    const row = rowOf('Oxford Navigate B1');
+
+    expect(within(row).getByText(i18n.t('materials:list.fields.covered'))).toBeInTheDocument();
+    expect(
+      within(row).getByText(i18n.t('materials:coverage.progress', { count: 12, total: 185 })),
+    ).toBeInTheDocument();
+    // Пройденное — это ещё не весь материал: пометки об исчерпании нет.
+    expect(
+      within(row).queryByText(i18n.t('materials:coverage.completed.label')),
+    ).not.toBeInTheDocument();
+  });
+
+  it('склоняет счётчик пройденного по-русски', async () => {
+    await i18n.changeLanguage('ru');
+    renderList(covered());
+
+    await screen.findByRole('heading', { level: 3, name: 'Oxford Navigate B1' });
+
+    expect(
+      within(rowOf('Oxford Navigate B1')).getByText('12 фрагментов из 185'),
+    ).toBeInTheDocument();
+
+    // Все четыре формы русского числа, включая 21 — «фрагмент», а не «фрагментов».
+    const ru = i18n.getFixedT('ru', 'materials');
+
+    expect(ru('coverage.progress', { count: 1, total: 185 })).toBe('1 фрагмент из 185');
+    expect(ru('coverage.progress', { count: 2, total: 185 })).toBe('2 фрагмента из 185');
+    expect(ru('coverage.progress', { count: 12, total: 185 })).toBe('12 фрагментов из 185');
+    expect(ru('coverage.progress', { count: 21, total: 185 })).toBe('21 фрагмент из 185');
+
+    const en = i18n.getFixedT('en', 'materials');
+
+    expect(en('coverage.progress', { count: 1, total: 185 })).toBe('1 fragment of 185');
+    expect(en('coverage.progress', { count: 12, total: 185 })).toBe('12 fragments of 185');
+  });
+
+  it('помечает материал, пройденный целиком, и говорит о повторении', async () => {
+    renderList(covered({ coveredChunkCount: 185 }));
+
+    await screen.findByRole('heading', { level: 3, name: 'Oxford Navigate B1' });
+
+    const row = rowOf('Oxford Navigate B1');
+
+    expect(within(row).getByText(i18n.t('materials:coverage.completed.label'))).toBeInTheDocument();
+    expect(within(row).getByText(i18n.t('materials:coverage.completed.hint'))).toBeInTheDocument();
+    expect(
+      within(row).getByText(i18n.t('materials:coverage.progress', { count: 185, total: 185 })),
+    ).toBeInTheDocument();
+  });
+
+  it('о нетронутом материале ничего про пройденное не говорит', async () => {
+    renderList(covered({ coveredChunkCount: 0 }));
+
+    await screen.findByRole('heading', { level: 3, name: 'Oxford Navigate B1' });
+
+    const row = rowOf('Oxford Navigate B1');
+
+    // Ни счётчика, ни пометки: новый пользователь не должен видеть пустой прогресс.
+    expect(
+      within(row).queryByText(i18n.t('materials:list.fields.covered')),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(i18n.t('materials:coverage.progress', { count: 0, total: 185 })),
+    ).not.toBeInTheDocument();
+    expect(
+      within(row).queryByText(i18n.t('materials:coverage.completed.label')),
+    ).not.toBeInTheDocument();
+    // Общее число фрагментов при этом на месте.
+    expect(
+      within(row).getByText(i18n.t('materials:units.chunks', { count: 185 })),
+    ).toBeInTheDocument();
+  });
+
+  it('не выдаёт обрабатываемый материал без фрагментов за пройденный целиком', async () => {
+    renderList(covered({ status: 'processing', chunkCount: 0, coveredChunkCount: 0 }));
+
+    await screen.findByRole('heading', { level: 3, name: 'Oxford Navigate B1' });
+
+    expect(
+      within(rowOf('Oxford Navigate B1')).queryByText(i18n.t('materials:coverage.completed.label')),
+    ).not.toBeInTheDocument();
   });
 });

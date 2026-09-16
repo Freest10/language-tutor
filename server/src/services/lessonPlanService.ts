@@ -53,6 +53,7 @@ import {
 import { requestStructuredJson } from '../providers/structuredJson.js';
 import type { ProviderLogger } from '../providers/types.js';
 import {
+  findCoveredChunkIds,
   insertLesson,
   listLessons as selectLessons,
   replaceLessonPlan,
@@ -93,6 +94,8 @@ interface PlanMaterials {
   excerpts: LessonMaterialExcerpt[];
   /** Метка промпта (`C1`) → идентификатор фрагмента материала. */
   chunkIdByRef: Map<string, Id>;
+  /** `true` — материал пройден целиком, и урок строится как повторение. */
+  allCovered: boolean;
 }
 
 /**
@@ -138,17 +141,39 @@ function assertMaterialsUsable(materialIds: readonly Id[]): void {
 }
 
 /**
+ * Пройденный материал, который брать в новый урок не надо.
+ *
+ * `includeCoveredMaterial` — просьба ученика вернуться к пройденному, тогда
+ * исключать нечего. При пересборке плана собственные шаги урока в «пройденное»
+ * не входят: иначе урок стал бы избегать материала, на котором сам построен.
+ */
+function coveredChunkIds(
+  materialIds: readonly Id[],
+  options: { includeCoveredMaterial: boolean; lessonId?: Id },
+): ReadonlySet<Id> {
+  if (options.includeCoveredMaterial) {
+    return new Set<Id>();
+  }
+
+  return findCoveredChunkIds(
+    materialIds,
+    options.lessonId === undefined ? {} : { excludeLessonId: options.lessonId },
+  );
+}
+
+/**
  * Отбирает цитаты из материалов под бюджет промпта и подписывает их метками,
  * по которым модель ссылается на фрагменты (`materialRefs`).
  */
 function selectMaterials(
   materialIds: readonly Id[],
   keywords: readonly string[],
-  options: LessonPlanServiceOptions,
+  options: LessonPlanServiceOptions & { excludeChunkIds: ReadonlySet<Id> },
 ): PlanMaterials {
   const selection = getChunksForLesson(materialIds, LESSON_MATERIAL_BUDGET_CHARS, {
     keywords,
     maxChunks: LESSON_MATERIAL_MAX_CHUNKS,
+    excludeChunkIds: options.excludeChunkIds,
   });
 
   if (selection.skippedMaterialIds.length > 0 || selection.truncated) {
@@ -180,7 +205,7 @@ function selectMaterials(
     };
   });
 
-  return { excerpts, chunkIdByRef };
+  return { excerpts, chunkIdByRef, allCovered: selection.allCovered };
 }
 
 /** Фрагменты, на которые сослалась модель; выдуманные метки отбрасываются. */
@@ -342,7 +367,12 @@ export async function createLesson(
   const materials = selectMaterials(
     materialIds,
     extractKeywords([input.topic, ...goals, ...profile.interests]),
-    options,
+    {
+      ...options,
+      excludeChunkIds: coveredChunkIds(materialIds, {
+        includeCoveredMaterial: input.includeCoveredMaterial,
+      }),
+    },
   );
   const context = promptContext(profile, { level, durationMinutes });
   const reply = await requestPlan(
@@ -352,6 +382,7 @@ export async function createLesson(
       topic: input.topic ?? null,
       focus: input.focus ?? [],
       excerpts: materials.excerpts,
+      materialAllCovered: materials.allCovered,
       minSteps: LESSON_PLAN_MIN_STEPS,
       maxSteps: LESSON_PLAN_MAX_STEPS,
       minutes: durationMinutes,
@@ -479,7 +510,13 @@ export async function regenerateLessonPlan(
   const materials = selectMaterials(
     lesson.materialIds,
     extractKeywords([lesson.topic, input.feedback, ...lesson.goals, ...profile.interests]),
-    options,
+    {
+      ...options,
+      excludeChunkIds: coveredChunkIds(lesson.materialIds, {
+        includeCoveredMaterial: input.includeCoveredMaterial,
+        lessonId: lesson.id,
+      }),
+    },
   );
   const context = promptContext(profile, {
     level: lesson.level,
@@ -491,6 +528,7 @@ export async function regenerateLessonPlan(
       goals: lesson.goals,
       topic: lesson.topic ?? null,
       excerpts: materials.excerpts,
+      materialAllCovered: materials.allCovered,
       minSteps,
       maxSteps,
       minutes,

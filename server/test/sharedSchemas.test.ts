@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   apiErrorResponseSchema,
   createExerciseAttemptRequestSchema,
+  createLessonRequestSchema,
   cefrLevelSchema,
   exerciseAttemptSchema,
   getConfigResponseSchema,
@@ -14,6 +15,7 @@ import {
   levelHistoryEntrySchema,
   materialSchema,
   paginationQuerySchema,
+  regenerateLessonPlanRequestSchema,
   sttRequestFieldsSchema,
   sttResponseSchema,
   ttsRequestSchema,
@@ -287,6 +289,37 @@ describe('прочие контракты', () => {
     expect(isMaterialErrorStatus(scan.status)).toBe(true);
     expect(isMaterialErrorStatus('ready')).toBe(false);
     expect(materialSchema.safeParse({ ...scan, status: 'broken' }).success).toBe(false);
+  });
+
+  it('подставляет нулевой счётчик пройденного материалу без него', () => {
+    const material = materialSchema.parse({
+      id: 'material-1',
+      title: 'Учебник',
+      sourceType: 'txt',
+      status: 'ready',
+      language: 'de',
+      charCount: 100,
+      chunkCount: 4,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+
+    // Поле добавлено со значением по умолчанию, поэтому старые тела запросов
+    // и фикстуры разбираются как прежде.
+    expect(material.coveredChunkCount).toBe(0);
+    expect(materialSchema.parse({ ...material, coveredChunkCount: 4 }).coveredChunkCount).toBe(4);
+    expect(materialSchema.safeParse({ ...material, coveredChunkCount: -1 }).success).toBe(false);
+  });
+
+  it('по умолчанию не разрешает уроку брать пройденный материал', () => {
+    expect(createLessonRequestSchema.parse({}).includeCoveredMaterial).toBe(false);
+    expect(
+      createLessonRequestSchema.parse({ includeCoveredMaterial: true }).includeCoveredMaterial,
+    ).toBe(true);
+    expect(regenerateLessonPlanRequestSchema.parse({})).toEqual({
+      keepCompletedSteps: true,
+      includeCoveredMaterial: false,
+    });
   });
 
   it('требует обоснование и метрику при изменении уровня (A13)', () => {

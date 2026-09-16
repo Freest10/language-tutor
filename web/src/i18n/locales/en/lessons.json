@@ -114,6 +114,14 @@
     "duration": {
       "label": "Duration of the lesson"
     },
+    "includeCovered": {
+      "label": "Allow material you have already covered",
+      "hint": "Without this the lesson only takes fragments you have not worked through yet. With it the tutor may return to what is covered — to revise a difficult topic, for example. Steps you skipped do not count as covered and come back on their own."
+    },
+    "allCovered": {
+      "title": "No new material is left",
+      "description": "The picked materials are fully covered, so the lesson is built from fragments you have already worked through — it will be a revision. Pick another material if you need a new one."
+    },
     "generating": {
       "title": "The model is building the plan…",
       "description": "A local model needs tens of seconds for this. Keep the window open: closing it cancels the request.",
@@ -135,6 +143,11 @@
     "selected_one": "{{count}} material selected, at most {{max}}.",
     "selected_other": "{{count}} materials selected, at most {{max}}.",
     "limitReached": "The limit of {{max}} materials per lesson is reached: unselect one to pick another.",
+    "coverage": {
+      "progress_one": "{{count}} fragment of {{total}} is already covered.",
+      "progress_other": "{{count}} fragments of {{total}} are already covered.",
+      "completed": "Fully covered"
+    },
     "empty": {
       "description": "There are no materials yet: the lesson will be built without them.",
       "action": "Add a material"
@@ -224,6 +237,10 @@
       "keepCompleted": {
         "label": "Keep the steps that are already started or finished",
         "hint": "Only the steps that have not started yet are replanned; the rest stay as they are."
+      },
+      "includeCovered": {
+        "label": "Allow material covered in other lessons",
+        "hint": "Without this the new plan avoids the fragments worked through in other lessons. The steps of this lesson itself do not count as covered."
       },
       "pending": {
         "title": "The model is rebuilding the plan…",

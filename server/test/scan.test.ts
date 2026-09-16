@@ -575,6 +575,7 @@ describe('перезапуск сервера', () => {
       level: null,
       charCount: 0,
       chunkCount: 0,
+      coveredChunkCount: 0,
       pageCount: 48,
       topics: [],
       summary: null,

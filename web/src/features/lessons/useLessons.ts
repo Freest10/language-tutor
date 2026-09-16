@@ -44,6 +44,7 @@ import {
   lessonErrorReason,
   listLessonMaterials,
   listLessons,
+  missingLlmModel,
   regenerateLessonPlan,
   type ListLessonMaterialsParams,
   type ListLessonsParams,
@@ -346,6 +347,12 @@ export function useLessonErrorMessage(): (error: unknown) => string {
         return t('errors.notConfigured');
       }
 
+      const missingModel = missingLlmModel(error);
+
+      if (missingModel !== null) {
+        return t('errors.modelNotFound', { model: missingModel });
+      }
+
       switch (lessonErrorReason(error)) {
         case 'materials_not_ready':
           return t('errors.materialsNotReady');
@@ -379,7 +386,11 @@ export function useLessonErrorMessage(): (error: unknown) => string {
 }
 
 /** Ключ подсказки в namespace `lessons`, которую стоит показать рядом с ошибкой. */
-export type LlmHintKey = 'errors.setupHint' | 'errors.startHint' | 'errors.retryHint';
+export type LlmHintKey =
+  | 'errors.setupHint'
+  | 'errors.startHint'
+  | 'errors.retryHint'
+  | 'errors.modelNotFoundHint';
 
 /**
  * Какая подсказка нужна рядом с отказом языковой модели.
@@ -389,6 +400,10 @@ export type LlmHintKey = 'errors.setupHint' | 'errors.startHint' | 'errors.retry
  * настройки в порядке и модель просто не запущена, при 502 она запущена, но
  * вернула негодный ответ. Единая подсказка отправляла править конфигурацию
  * даже тогда, когда конфигурация ни при чём.
+ *
+ * Отдельно стоит ненайденная модель: сервер модели работает и отвечает, поэтому
+ * отказ приходит тем же 502, но повторять запрос бессмысленно — модели с таким
+ * именем у провайдера нет, и её надо либо установить, либо переименовать в .env.
  */
 export function llmHintKey(error: unknown): LlmHintKey | null {
   if (!isApiError(error) || error.isTimeout || error.isNetworkError) {
@@ -401,6 +416,10 @@ export function llmHintKey(error: unknown): LlmHintKey | null {
 
   if (error.code === 'upstream_unavailable') {
     return 'errors.startHint';
+  }
+
+  if (missingLlmModel(error) !== null) {
+    return 'errors.modelNotFoundHint';
   }
 
   if (error.code === 'upstream_error') {

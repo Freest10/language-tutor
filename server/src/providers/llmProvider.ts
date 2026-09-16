@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import { OpenAiCompatibleClient, type RetryPolicy } from './openaiCompatible.js';
 import {
+  isProviderError,
   ProviderError,
   type ChatRequest,
   type ChatResult,
@@ -73,6 +74,53 @@ export function stripReasoning(text: string): string {
   return text.replace(THINK_BLOCK_PATTERN, '').trim();
 }
 
+/**
+ * Значение `response_format` запроса.
+ *
+ * Строгий режим (`json_schema`) сильнее свободного (`json_object`): сервер модели
+ * ограничивает генерацию грамматикой схемы, и ответ не по схеме становится
+ * невозможен. Выбирает режим вызывающая сторона — она же умеет отступить назад,
+ * если сервер такого режима не знает.
+ */
+function responseFormat(request: ChatRequest): Record<string, unknown> | undefined {
+  if (request.jsonSchema !== undefined) {
+    return {
+      type: 'json_schema',
+      json_schema: { name: request.jsonSchema.name, schema: request.jsonSchema.schema },
+    };
+  }
+
+  return request.jsonMode === true ? { type: 'json_object' } : undefined;
+}
+
+/**
+ * Отказ 404 — это «нет такой модели», а не обычная ошибка сервера.
+ *
+ * Ollama отвечает так на `model 'qwen3:8b' not found`, и отличить этот случай
+ * важно: сообщение «модель ответила ошибкой» отправляет пользователя искать
+ * поломку в модели, хотя чинить надо строку `LLM_MODEL` — модель просто не
+ * установлена. Тот же статус отдаёт неверный `LLM_BASE_URL`, поэтому названы обе
+ * переменные. Адрес в текст не подставляется: в нём бывает ключ доступа.
+ */
+function describeNotFound(error: unknown, model: string): unknown {
+  if (!isProviderError(error) || error.kind !== 'http' || error.status !== 404) {
+    return error;
+  }
+
+  return new ProviderError(
+    'llm',
+    'model_not_found',
+    `Модель «${model}» не найдена у провайдера: проверьте LLM_MODEL и LLM_BASE_URL`,
+    {
+      status: error.status,
+      detail: error.detail,
+      attempt: error.attempt,
+      model,
+      cause: error,
+    },
+  );
+}
+
 /** Приводит расход токенов к типу приложения; `null` — провайдер его не сообщил. */
 function toUsage(usage: z.infer<typeof chatCompletionSchema>['usage']): ChatUsage | null {
   if (usage === null || usage === undefined) {
@@ -115,6 +163,7 @@ class OpenAiCompatibleLlmProvider implements LlmProvider {
     }
 
     const temperature = request.temperature ?? this.temperature;
+    const format = responseFormat(request);
     const body = {
       model: request.model ?? this.model,
       // `content` уходит как есть: строка для обычного диалога и список кусков
@@ -126,12 +175,19 @@ class OpenAiCompatibleLlmProvider implements LlmProvider {
       stream: false,
       ...(temperature === undefined ? {} : { temperature }),
       ...(request.maxTokens === undefined ? {} : { max_tokens: request.maxTokens }),
-      ...(request.jsonMode === true ? { response_format: { type: 'json_object' } } : {}),
+      ...(format === undefined ? {} : { response_format: format }),
     };
 
-    const payload = await this.client.postJson(CHAT_COMPLETIONS_PATH, body, {
-      signal: request.signal,
-    });
+    let payload: unknown;
+
+    try {
+      payload = await this.client.postJson(CHAT_COMPLETIONS_PATH, body, {
+        signal: request.signal,
+      });
+    } catch (error) {
+      throw describeNotFound(error, body.model);
+    }
+
     const parsed = chatCompletionSchema.safeParse(payload);
 
     if (!parsed.success) {

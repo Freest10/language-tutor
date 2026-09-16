@@ -32,6 +32,7 @@ export type ProviderTarget = (typeof PROVIDER_TARGETS)[number];
  * - `not_configured` — не задан адрес или модель (или выбран `browser`);
  * - `timeout` — провайдер не ответил за отведённое время;
  * - `network` — соединение не установлено или разорвано;
+ * - `model_not_found` — провайдер работает, но модели с таким именем у него нет;
  * - `http` — провайдер ответил статусом 4xx/5xx;
  * - `invalid_response` — ответ разобрать не удалось (не JSON, нет нужных полей).
  */
@@ -39,6 +40,7 @@ export const PROVIDER_ERROR_KINDS = [
   'not_configured',
   'timeout',
   'network',
+  'model_not_found',
   'http',
   'invalid_response',
 ] as const;
@@ -56,6 +58,8 @@ export interface ProviderErrorOptions {
   attempt?: number;
   /** Задержка из заголовка `Retry-After`, мс. */
   retryAfterMs?: number;
+  /** Имя модели, которой не нашлось (для `kind: 'model_not_found'`). */
+  model?: string;
   cause?: unknown;
 }
 
@@ -76,6 +80,8 @@ export class ProviderError extends Error {
   readonly attempt: number | undefined;
   /** Задержка из заголовка `Retry-After`, мс. */
   readonly retryAfterMs: number | undefined;
+  /** Имя ненайденной модели: клиенту его показывают как есть. */
+  readonly model: string | undefined;
 
   constructor(
     target: ProviderTarget,
@@ -91,6 +97,7 @@ export class ProviderError extends Error {
     this.detail = options.detail;
     this.attempt = options.attempt;
     this.retryAfterMs = options.retryAfterMs;
+    this.model = options.model;
   }
 }
 
@@ -111,6 +118,7 @@ const REASON_SUFFIXES: Record<ProviderErrorKind, string> = {
   not_configured: 'not_configured',
   timeout: 'timeout',
   network: 'unavailable',
+  model_not_found: 'model_not_found',
   http: 'upstream_error',
   invalid_response: 'invalid_response',
 };
@@ -119,6 +127,7 @@ const REASON_SUFFIXES: Record<ProviderErrorKind, string> = {
  * Переводит отказ провайдера в ошибку HTTP-слоя:
  * - не настроен → 501 `not_configured`;
  * - таймаут или нет соединения → 503 `upstream_unavailable`;
+ * - нет такой модели → 502 `upstream_error` с пометкой `*_model_not_found`;
  * - провайдер ответил ошибкой или неразбираемым результатом → 502 `upstream_error`.
  *
  * `AppError` пропускается как есть, всё остальное становится 500: подробности
@@ -137,6 +146,9 @@ export function providerErrorToAppError(error: unknown, target: ProviderTarget):
   const details = {
     reason: `${error.target}_${REASON_SUFFIXES[error.kind]}`,
     ...(error.status === undefined ? {} : { status: error.status }),
+    // Имя модели нужно клиенту, чтобы назвать её в подсказке на языке интерфейса:
+    // сообщение сервера переводу не подлежит.
+    ...(error.model === undefined ? {} : { model: error.model }),
   };
   const options = { details, cause: error };
 
@@ -147,6 +159,11 @@ export function providerErrorToAppError(error: unknown, target: ProviderTarget):
       return upstreamUnavailable(`${label} не ответила за отведённое время`, options);
     case 'network':
       return upstreamUnavailable(`${label} недоступна`, options);
+    // Единственный отказ, чей текст уходит клиенту как есть: имя ненайденной
+    // модели — это и есть ответ на вопрос «что чинить», подставить его вместо
+    // провайдера некому.
+    case 'model_not_found':
+      return upstreamError(error.message, options);
     case 'http':
       return upstreamError(`${label} ответила ошибкой`, options);
     case 'invalid_response':
@@ -208,6 +225,14 @@ export interface ChatUsage {
   totalTokens: number;
 }
 
+/** Схема ответа для строгого режима `response_format: { type: 'json_schema' }`. */
+export interface ChatJsonSchema {
+  /** Имя схемы: часть контракта OpenAI, уходит в тело запроса. */
+  name: string;
+  /** Сама JSON Schema, как её ждёт сервер модели. */
+  schema: Record<string, unknown>;
+}
+
 /** Запрос к языковой модели. */
 export interface ChatRequest {
   /** Диалог целиком: системная инструкция, история, текущий запрос. */
@@ -218,6 +243,15 @@ export interface ChatRequest {
   maxTokens?: number;
   /** Просить ответ строго JSON-объектом (`response_format: { type: 'json_object' }`). */
   jsonMode?: boolean;
+  /**
+   * Схема ответа для строгого режима `response_format: { type: 'json_schema' }`.
+   *
+   * Сильнее `jsonMode`: сервер модели не просто требует JSON, а ограничивает
+   * генерацию грамматикой схемы, и ответ не по схеме становится невозможен.
+   * Поддерживают его не все серверы — тот, кто просит, обязан уметь обойтись
+   * без него (см. лестницу режимов в `structuredJson.ts`).
+   */
+  jsonSchema?: ChatJsonSchema;
   /** Модель для этого запроса; по умолчанию — модель провайдера. */
   model?: string;
   /** Отмена запроса извне (в дополнение к собственному таймауту). */

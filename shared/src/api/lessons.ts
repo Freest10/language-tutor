@@ -49,6 +49,13 @@ export const createLessonRequestSchema = z.object({
   /** Длительность урока; по умолчанию — `dailyMinutes` профиля. */
   durationMinutes: z.int().min(5).max(240).optional(),
   goals: z.array(learnerGoalSchema).max(MAX_LEARNER_GOALS).optional(),
+  /**
+   * Разрешить брать фрагменты, уже пройденные на прошлых уроках.
+   *
+   * По умолчанию `false`: пройденное не предлагается снова, каждый урок идёт
+   * по новому материалу. `true` — ученик сам просит вернуться к пройденному.
+   */
+  includeCoveredMaterial: z.boolean().default(false),
 });
 
 /** Тело `POST /api/lessons`. */
@@ -82,6 +89,12 @@ export const regenerateLessonPlanRequestSchema = z.object({
   feedback: z.string().trim().min(1).max(1000).optional(),
   /** Сохранить уже пройденные шаги и перепланировать только оставшиеся. */
   keepCompletedSteps: z.boolean().default(true),
+  /**
+   * Разрешить брать фрагменты, пройденные на других уроках; по умолчанию `false`.
+   * Собственные шаги пересобираемого урока пройденными здесь не считаются —
+   * иначе урок начал бы избегать своего же материала.
+   */
+  includeCoveredMaterial: z.boolean().default(false),
 });
 
 /** Тело `POST /api/lessons/:id/plan/regenerate`. */

@@ -258,6 +258,8 @@ async function buildMaterial(draft: {
     level: null,
     charCount: 0,
     chunkCount: 0,
+    // Только что созданный материал ещё нигде не проходили.
+    coveredChunkCount: 0,
     pageCount: null,
     topics: [],
     summary: null,
@@ -538,6 +540,12 @@ export interface LessonChunkOptions {
   keywords?: readonly string[];
   /** Верхняя граница числа фрагментов независимо от бюджета символов. */
   maxChunks?: number;
+  /**
+   * Фрагменты, которые брать не надо: их ученик уже отработал на прошлых уроках
+   * (`findCoveredChunkIds()`). Пустое множество или отсутствие поля — отбор идёт
+   * по всему материалу, как раньше.
+   */
+  excludeChunkIds?: ReadonlySet<Id>;
 }
 
 /** Отобранный фрагмент вместе с материалом, из которого он взят. */
@@ -561,6 +569,13 @@ export interface LessonChunkSelection {
   truncated: boolean;
   /** Материалы, не давшие ни одного фрагмента: не готовы, пусты или не существуют. */
   skippedMaterialIds: Id[];
+  /**
+   * `true` — весь материал уже пройден, и `excludeChunkIds` не оставил ни одного
+   * фрагмента, поэтому отбор вернулся к пройденному. Урок по такому материалу
+   * строится как повторение, и вызывающий обязан сказать об этом и ученику,
+   * и модели: делать вид, что материал новый, нельзя.
+   */
+  allCovered: boolean;
 }
 
 /**
@@ -575,7 +590,11 @@ export interface LessonChunkSelection {
  *    и порядок остаётся исходным, то есть от начала материала;
  * 3. фрагменты добираются по кругу из всех материалов, чтобы один длинный материал
  *    не занял весь бюджет;
- * 4. фрагмент берётся целиком или не берётся вовсе: обрезанный текст портит промпт.
+ * 4. фрагмент берётся целиком или не берётся вовсе: обрезанный текст портит промпт;
+ * 5. пройденные фрагменты (`excludeChunkIds`) в отбор не попадают вовсе — кроме
+ *    случая, когда после исключения не осталось ничего: материал пройден целиком,
+ *    и урок из пустого отбора получился бы ни о чём. Тогда отбор возвращается
+ *    к пройденному и помечает результат `allCovered`.
  *
  * Ограничение честное: на длинном PDF без ключевых слов отбор вырождается в «первые
  * N фрагментов», а поиск по подстроке не знает ни словоформ, ни синонимов. Для больших
@@ -595,6 +614,7 @@ export function getChunksForLesson(
     estimatedTokens: 0,
     truncated: false,
     skippedMaterialIds: [...materialIds],
+    allCovered: false,
   };
 
   if (materialIds.length === 0 || budgetChars <= 0) {
@@ -611,7 +631,12 @@ export function getChunksForLesson(
 
   const keywords = normalizeKeywords(options.keywords ?? []);
   const maxChunks = options.maxChunks ?? Number.POSITIVE_INFINITY;
-  const chunksByMaterial = groupChunks(materials, keywords);
+  const everything = groupChunks(materials, keywords);
+  const fresh = withoutCovered(everything, options.excludeChunkIds);
+  // Пройденное исключено подчистую: материал отработан целиком, и урок строится
+  // на нём же — как повторение, о чём говорит `allCovered`.
+  const allCovered = fresh.length === 0 && everything.length > 0;
+  const chunksByMaterial = allCovered ? everything : fresh;
   const selected = pickWithinBudget(chunksByMaterial, budgetChars, maxChunks);
   const positionOfMaterial = new Map(materials.map((material, index) => [material.id, index]));
 
@@ -635,7 +660,22 @@ export function getChunksForLesson(
     estimatedTokens: estimateTokens(selected.chunks.map((entry) => entry.chunk.content).join('')),
     truncated: selected.truncated,
     skippedMaterialIds: materialIds.filter((id) => !used.has(id)),
+    allCovered,
   };
+}
+
+/** Убирает пройденные фрагменты; материал, от которого ничего не осталось, выпадает. */
+function withoutCovered(
+  stacks: LessonChunk[][],
+  covered: ReadonlySet<Id> | undefined,
+): LessonChunk[][] {
+  if (covered === undefined || covered.size === 0) {
+    return stacks;
+  }
+
+  return stacks
+    .map((stack) => stack.filter((entry) => !covered.has(entry.chunk.id)))
+    .filter((stack) => stack.length > 0);
 }
 
 /** Раскладывает фрагменты по материалам и сортирует каждую стопку по релевантности. */

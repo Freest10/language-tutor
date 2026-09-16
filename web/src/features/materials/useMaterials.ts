@@ -89,6 +89,43 @@ export function materialsPollInterval(materials: readonly Material[]): number | 
   return hasProcessingMaterials(materials) ? MATERIALS_POLL_INTERVAL_MS : false;
 }
 
+/**
+ * Сколько материала уже отработано на уроках.
+ *
+ * Считается только по двум числам контракта — `coveredChunkCount` и `chunkCount`.
+ * Ни долей, ни процентов здесь нет намеренно: сервер их не присылает, а рисовать
+ * полосу по выдуманному знаменателю значит обещать точность, которой нет.
+ */
+export interface MaterialCoverage {
+  /** Сколько фрагментов уже отработано, не больше `total`. */
+  covered: number;
+  /** Сколько фрагментов в материале всего. */
+  total: number;
+  /** Есть ли что показывать: у нетронутого материала счётчик не рисуется. */
+  hasCovered: boolean;
+  /** Материал отработан целиком: новый урок по нему будет повторением. */
+  isFullyCovered: boolean;
+}
+
+/**
+ * Пройденность материала.
+ *
+ * Значение подрезается по `chunkCount`: сервер обещает `coveredChunkCount <= chunkCount`,
+ * но показать «пройдено 7 из 3» из-за рассинхронизации счётчиков нельзя.
+ */
+export function materialCoverage(material: Material): MaterialCoverage {
+  const total = Math.max(material.chunkCount, 0);
+  const covered = Math.min(Math.max(material.coveredChunkCount, 0), total);
+
+  return {
+    covered,
+    total,
+    hasCovered: covered > 0,
+    // Материал без фрагментов (ещё обрабатывается) пройденным не считается.
+    isFullyCovered: total > 0 && covered >= total,
+  };
+}
+
 /** Параметры списка материалов. */
 export interface UseMaterialsOptions extends ListMaterialsParams {
   /** Не ходить на сервер, пока значение `false`. */

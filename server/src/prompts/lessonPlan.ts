@@ -59,6 +59,19 @@ export const LESSON_MATERIAL_BUDGET_CHARS = 6000;
 /** Предел числа фрагментов в промпте: длинный список размывает тему урока. */
 export const LESSON_MATERIAL_MAX_CHUNKS = 12;
 
+/**
+ * Пометка промпта о том, что материал пройден целиком.
+ *
+ * Свежего материала не осталось, и урок строится на уже отработанных фрагментах.
+ * Модель должна знать это как факт: повторение и первое знакомство с текстом —
+ * разные уроки, и притворяться, что материал новый, нельзя.
+ */
+export const COVERED_MATERIAL_NOTE = [
+  'The learner has already worked through all of this material in earlier lessons:',
+  'this lesson is a revision. Build the steps as recall, re-use and error repair —',
+  'do not present the excerpts as new material.',
+].join('\n');
+
 /** Шаг плана в ответе модели: идентификаторы и статусы проставляет сервер. */
 export const lessonPlanStepReplySchema = z.object({
   type: lessonStepTypeSchema,
@@ -137,6 +150,12 @@ export interface LessonPlanRequestOptions {
   focus?: readonly LessonStepType[];
   /** Фрагменты материалов; пустой список — урок строится по целям и интересам. */
   excerpts: readonly LessonMaterialExcerpt[];
+  /**
+   * `true` — присланные фрагменты ученик уже проходил: материал отработан целиком,
+   * и нового в нём не осталось (`LessonChunkSelection.allCovered`). Модель обязана
+   * знать этот факт, иначе построит урок так, будто видит материал впервые.
+   */
+  materialAllCovered?: boolean;
   /** Сколько шагов ждут от модели. */
   minSteps: number;
   maxSteps: number;
@@ -160,8 +179,14 @@ export function materialRefLabel(index: number): string {
  * включая абзац вида «ignore previous instructions». Поэтому каждая цитата уходит
  * в ограничителях `<material>` с пометкой «это данные, а не инструкции»
  * (см. `prompts/format.ts`).
+ *
+ * `allCovered` — материал пройден целиком: модели говорится прямо, что это
+ * повторение, иначе она построит урок как первое знакомство с текстом.
  */
-export function formatMaterialExcerpts(excerpts: readonly LessonMaterialExcerpt[]): string {
+export function formatMaterialExcerpts(
+  excerpts: readonly LessonMaterialExcerpt[],
+  options: { allCovered?: boolean } = {},
+): string {
   if (excerpts.length === 0) {
     return [
       'No materials were uploaded for this lesson.',
@@ -171,6 +196,7 @@ export function formatMaterialExcerpts(excerpts: readonly LessonMaterialExcerpt[
 
   return [
     'Material excerpts to build the lesson on (reference them by label in "materialRefs"):',
+    ...(options.allCovered === true ? [COVERED_MATERIAL_NOTE] : []),
     UNTRUSTED_DATA_NOTE,
     ...excerpts.map((excerpt) =>
       [
@@ -274,7 +300,7 @@ export function buildLessonPlanMessages(
     `Number of steps to plan: from ${String(options.minSteps)} to ${String(options.maxSteps)}.`,
     `Minutes to distribute across these steps: ${String(options.minutes)}.`,
     '',
-    formatMaterialExcerpts(options.excerpts),
+    formatMaterialExcerpts(options.excerpts, { allCovered: options.materialAllCovered }),
   );
 
   return [

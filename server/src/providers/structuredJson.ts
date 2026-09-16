@@ -6,12 +6,18 @@
  * единственный источник истины: она и подсказывает модели формат (JSON Schema
  * в системной инструкции), и проверяет результат.
  *
- * Надёжность достигается тремя приёмами, в порядке применения:
- * 1. `response_format: { type: 'json_object' }` — если сервер модели его не знает
- *    и отвечает 4xx, запрос молча повторяется без этого поля;
- * 2. извлечение JSON из текста — модели любят обрамлять ответ ```-блоком
+ * Надёжность достигается четырьмя приёмами, в порядке применения:
+ * 1. `response_format: { type: 'json_schema' }` — сервер модели ограничивает
+ *    генерацию грамматикой схемы, и ответ не по схеме становится невозможен.
+ *    Так умеют llama.cpp, Ollama, vLLM и OpenAI; именно этот режим и спасает
+ *    локальные модели на 8B, которые словесную инструкцию нередко нарушают;
+ * 2. лестница режимов вниз: сервер, не знающий `json_schema`, отвечает 4xx —
+ *    тогда запрос повторяется со слабым `json_object`, а потом и вовсе без
+ *    `response_format`. Возможности сервера не угадываются заранее и не
+ *    настраиваются: они выясняются из его же ответа;
+ * 3. извлечение JSON из текста — модели любят обрамлять ответ ```-блоком
  *    или предварять пояснением;
- * 3. один ремонтный заход — модели показывают её же ответ и список претензий
+ * 4. один ремонтный заход — модели показывают её же ответ и список претензий
  *    Zod и просят прислать исправленный JSON.
  *
  * Если и это не помогло, поднимается `ProviderError` вида `invalid_response`,
@@ -25,20 +31,39 @@ import { resolveLlmProvider } from './factory.js';
 import {
   isProviderError,
   ProviderError,
+  type ChatJsonSchema,
   type ChatMessage,
+  type ChatRequest,
   type ChatUsage,
   type LlmProvider,
   type ProviderLogger,
 } from './types.js';
 
-/** Сколько обращений к модели допустимо суммарно (деградация + ремонт). */
-export const MAX_STRUCTURED_ATTEMPTS = 4;
+/**
+ * Сколько обращений к модели допустимо суммарно (деградация + ремонт).
+ *
+ * Худший случай: два шага вниз по лестнице режимов (`json_schema` → `json_object`
+ * → без `response_format`), сама генерация и один ремонтный заход.
+ */
+export const MAX_STRUCTURED_ATTEMPTS = 5;
 
 /** Ремонтных заходов по умолчанию: один. */
 export const DEFAULT_REPAIR_ATTEMPTS = 1;
 
-/** Статусы, по которым считаем, что сервер модели не знает `response_format`. */
-const JSON_MODE_UNSUPPORTED_STATUSES = new Set([400, 404, 405, 415, 422, 501]);
+/**
+ * Статусы, по которым считаем, что сервер модели не знает запрошенный режим.
+ *
+ * 404 сюда не входит: у OpenAI-совместимых серверов это «нет такой модели»
+ * (или адрес ведёт не туда), и повтор в другом режиме лишь прячет настоящую
+ * причину за лишним запросом.
+ */
+const FORMAT_UNSUPPORTED_STATUSES = new Set([400, 405, 415, 422, 501]);
+
+/** Режимы ответа, от строгого к свободному: следующий пробуется, если сервер не знает текущего. */
+export const STRUCTURED_FORMATS = ['json_schema', 'json_object', 'text'] as const;
+
+/** Режим ответа, которым запрошен структурированный JSON. */
+export type StructuredFormat = (typeof STRUCTURED_FORMATS)[number];
 
 /** Запрос структурированного ответа. */
 export interface StructuredJsonRequest<Schema extends z.ZodType> {
@@ -72,8 +97,8 @@ export interface StructuredJsonResult<Value> {
   raw: string;
   /** Суммарный расход токенов по всем обращениям; `null` — не сообщён. */
   usage: ChatUsage | null;
-  /** Удалось ли воспользоваться `response_format`. */
-  jsonModeUsed: boolean;
+  /** Каким режимом `response_format` удалось получить ответ. */
+  format: StructuredFormat;
 }
 
 /** Итог разбора текста ответа схемой. */
@@ -212,7 +237,7 @@ export function buildJsonInstruction<Schema extends z.ZodType>(
   const jsonSchema = toJsonSchema(schema);
 
   if (jsonSchema !== null) {
-    lines.push(`JSON Schema ответа: ${jsonSchema}`);
+    lines.push(`JSON Schema ответа: ${JSON.stringify(jsonSchema)}`);
   }
 
   if (options.schemaDescription !== undefined && options.schemaDescription.length > 0) {
@@ -222,10 +247,27 @@ export function buildJsonInstruction<Schema extends z.ZodType>(
   return lines.join('\n');
 }
 
-/** JSON Schema по Zod-схеме; `null` — схему нельзя представить (есть преобразования). */
-function toJsonSchema<Schema extends z.ZodType>(schema: Schema): string | null {
+/**
+ * JSON Schema по Zod-схеме; `null` — схему нельзя представить (есть преобразования).
+ *
+ * `io: 'output'` — схема описывает то, что должно получиться после разбора, а не
+ * то, что допустимо прислать: поля со значением по умолчанию в результате есть
+ * всегда, и модели незачем знать, что их можно опустить.
+ *
+ * `$schema` снимается: серверу модели этот ключ не нужен, а в промпте он занимает
+ * место. Заодно это избавляет от отказов серверов, которые строят по схеме
+ * грамматику и на незнакомый ключ отвечают 4xx.
+ */
+export function toJsonSchema<Schema extends z.ZodType>(
+  schema: Schema,
+): Record<string, unknown> | null {
   try {
-    return JSON.stringify(z.toJSONSchema(schema, { io: 'output' }));
+    const { $schema, ...rest } = z.toJSONSchema(schema, { io: 'output' }) as Record<
+      string,
+      unknown
+    >;
+
+    return rest;
   } catch {
     // Схемы с `transform` в JSON Schema не переводятся — обойдёмся описанием.
     return null;
@@ -241,14 +283,31 @@ function repairPrompt(problem: string, instruction: string): string {
   ].join('\n');
 }
 
-/** Не знает ли сервер модели про `response_format`. */
-function isJsonModeUnsupported(error: unknown): boolean {
+/** Не знает ли сервер модели про запрошенный `response_format`. */
+function isFormatUnsupported(error: unknown): boolean {
   return (
     isProviderError(error) &&
     error.kind === 'http' &&
     error.status !== undefined &&
-    JSON_MODE_UNSUPPORTED_STATUSES.has(error.status)
+    FORMAT_UNSUPPORTED_STATUSES.has(error.status)
   );
+}
+
+/** Следующий режим лестницы; `null` — отступать дальше некуда. */
+function nextFormat(format: StructuredFormat): StructuredFormat | null {
+  return STRUCTURED_FORMATS[STRUCTURED_FORMATS.indexOf(format) + 1] ?? null;
+}
+
+/** Поля запроса к модели, задающие режим ответа. */
+function formatRequest(
+  format: StructuredFormat,
+  jsonSchema: ChatJsonSchema | null,
+): Pick<ChatRequest, 'jsonMode' | 'jsonSchema'> {
+  if (format === 'json_schema' && jsonSchema !== null) {
+    return { jsonSchema };
+  }
+
+  return { jsonMode: format !== 'text' };
 }
 
 /** Складывает расход токенов по нескольким обращениям. */
@@ -286,9 +345,14 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
     { role: 'system', content: instruction },
     ...request.messages,
   ];
+  const derived = toJsonSchema(request.schema);
+  const jsonSchema: ChatJsonSchema | null =
+    derived === null ? null : { name: request.schemaName ?? 'result', schema: derived };
 
   let repairsLeft = request.repairAttempts ?? DEFAULT_REPAIR_ATTEMPTS;
-  let jsonMode = true;
+  // Схему, которую не удалось представить в JSON Schema, строгим режимом не
+  // попросишь: лестница для неё начинается со следующей ступени.
+  let format: StructuredFormat = jsonSchema === null ? 'json_object' : 'json_schema';
   let usage: ChatUsage | null = null;
   let attempts = 0;
   let lastProblem = 'модель не прислала JSON';
@@ -302,7 +366,7 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
     try {
       const result = await provider.chat({
         messages: conversation,
-        jsonMode,
+        ...formatRequest(format, jsonSchema),
         temperature: request.temperature,
         maxTokens: request.maxTokens,
         signal: request.signal,
@@ -311,12 +375,21 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
       usage = addUsage(usage, result.usage);
       text = result.text;
     } catch (error) {
-      if (jsonMode && isJsonModeUnsupported(error)) {
-        jsonMode = false;
+      const fallback: StructuredFormat | null = isFormatUnsupported(error)
+        ? nextFormat(format)
+        : null;
+
+      if (fallback !== null) {
         request.logger?.warn(
-          { target: 'llm', status: isProviderError(error) ? error.status : undefined },
-          'провайдер: response_format не поддержан, повтор без него',
+          {
+            target: 'llm',
+            status: isProviderError(error) ? error.status : undefined,
+            format,
+            fallback,
+          },
+          'провайдер: режим response_format не поддержан, повтор ступенью ниже',
         );
+        format = fallback;
 
         continue;
       }
@@ -329,7 +402,7 @@ export async function requestStructuredJson<Schema extends z.ZodType>(
     const parsed = parseStructuredJson(request.schema, text);
 
     if (parsed.ok) {
-      return { data: parsed.data, attempts, raw: text, usage, jsonModeUsed: jsonMode };
+      return { data: parsed.data, attempts, raw: text, usage, format };
     }
 
     lastProblem = parsed.problem;

@@ -94,6 +94,25 @@ export function lessonErrorReason(error: unknown): string | null {
 }
 
 /**
+ * Имя модели, которой не нашлось у провайдера (`llm_model_not_found`).
+ *
+ * Сервер присылает его отдельным полем, а не только в тексте: подсказка о том,
+ * что установить, собирается на языке интерфейса, и подставить в неё имя больше
+ * неоткуда.
+ *
+ * @returns имя модели; `null` — отказ был про другое.
+ */
+export function missingLlmModel(error: unknown): string | null {
+  const details = errorDetails(error);
+
+  if (details?.reason !== 'llm_model_not_found') {
+    return null;
+  }
+
+  return typeof details.model === 'string' && details.model.length > 0 ? details.model : null;
+}
+
+/**
  * Материалы из отказа 400 `materials_not_ready`.
  *
  * @returns перечень проблемных материалов; пустой массив — отказ был про другое.
@@ -125,9 +144,14 @@ export function notReadyMaterials(error: unknown): NotReadyMaterial[] {
 /**
  * Проверяет тело `POST /api/lessons` схемой `@lt/shared`.
  *
+ * Принимает частичное тело: поля со значением по умолчанию (`includeCoveredMaterial`)
+ * схема проставляет сама, и на сервер уходит уже полное тело.
+ *
  * @throws ApiError если параметры урока не соответствуют контракту.
  */
-export function parseCreateLessonRequest(body: CreateLessonRequest = {}): CreateLessonRequest {
+export function parseCreateLessonRequest(
+  body: Partial<CreateLessonRequest> = {},
+): CreateLessonRequest {
   const result = createLessonRequestSchema.safeParse(body);
 
   if (!result.success) {
@@ -197,9 +221,12 @@ export function getLesson(lessonId: string, signal?: AbortSignal): Promise<GetLe
  * Пустое тело допустимо: уровень, цели и длительность сервер берёт из профиля.
  * Необработанный материал в `materialIds` — отказ 400 `materials_not_ready`,
  * урок при этом не создаётся (см. `notReadyMaterials`).
+ *
+ * `includeCoveredMaterial` уходит всегда: без него сервер сам подставит `false`,
+ * но явное поле в теле честнее показывает, о чём договорились клиент и сервер.
  */
 export function createLesson(
-  body: CreateLessonRequest = {},
+  body: Partial<CreateLessonRequest> = {},
   signal?: AbortSignal,
 ): Promise<Lesson> {
   return api.post(LESSONS_PATH, parseCreateLessonRequest(body), {

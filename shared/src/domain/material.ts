@@ -101,6 +101,15 @@ export const materialSchema = z.object({
   level: cefrLevelSchema.nullish(),
   charCount: z.int().nonnegative(),
   chunkCount: z.int().nonnegative(),
+  /**
+   * Сколько фрагментов материала уже отработано на уроках, 0..`chunkCount`.
+   *
+   * Отработанным считается фрагмент, попавший в шаг плана со статусом `completed`
+   * (см. `findCoveredChunkIds()` на сервере). Значение считается по урокам, а не
+   * хранится в материале, поэтому у поля есть значение по умолчанию: источник,
+   * который его не заполняет, отдаёт «ничего не пройдено».
+   */
+  coveredChunkCount: z.int().min(0).default(0),
   pageCount: z.int().nonnegative().nullish(),
   /** Ключевые темы материала, извлечённые при обработке. */
   topics: z.array(z.string().trim().min(1).max(60)).max(20).default([]),

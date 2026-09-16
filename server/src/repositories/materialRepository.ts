@@ -186,15 +186,62 @@ export function failStuckProcessingMaterials(
     .run(status, statusMessage, nowIso()).changes;
 }
 
+/**
+ * Сколько фрагментов каждого материала уже отработано на уроках.
+ *
+ * Считается одним запросом на весь список материалов: счётчик нужен каждому
+ * элементу страницы, а запрос на материал в цикле превратил бы список в N+1.
+ * Отработанным фрагмент делает шаг плана со статусом `completed`; `skipped`
+ * пройденным НЕ считается — ученик шаг пропустил, а не отработал (то же правило
+ * и та же оговорка в `findCoveredChunkIds()` в `lessonRepository.ts`).
+ *
+ * `material_chunk_ids` шага — JSON-массив, поэтому он разворачивается `json_each()`
+ * прямо в запросе: иначе счётчик пришлось бы собирать в памяти по всем урокам.
+ * Считаются только существующие фрагменты (`JOIN material_chunks`), поэтому
+ * результат не превышает `chunk_count` материала.
+ */
+function findCoveredChunkCounts(ids: readonly Id[]): Map<Id, number> {
+  const counts = new Map<Id, number>();
+
+  if (ids.length === 0) {
+    return counts;
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const rows = getDb()
+    .prepare(
+      `SELECT chunks.material_id AS material_id, COUNT(DISTINCT chunks.id) AS total
+         FROM lesson_plan_steps steps
+         JOIN json_each(steps.material_chunk_ids) AS reference
+         JOIN material_chunks chunks ON chunks.id = reference.value
+        WHERE steps.status = 'completed' AND chunks.material_id IN (${placeholders})
+        GROUP BY chunks.material_id`,
+    )
+    .all(...ids) as { material_id: Id; total: number }[];
+
+  for (const row of rows) {
+    counts.set(row.material_id, row.total);
+  }
+
+  return counts;
+}
+
 /** Материал по идентификатору; `undefined` — материала нет. */
 export function findMaterialById(id: Id): Material | undefined {
   const row = getDb().prepare('SELECT * FROM materials WHERE id = ?').get(id) as
     MaterialRow | undefined;
 
-  return row === undefined ? undefined : rowToMaterial(row);
+  return row === undefined
+    ? undefined
+    : rowToMaterial(row, { coveredChunkCount: findCoveredChunkCounts([id]).get(id) ?? 0 });
 }
 
-/** Материалы по списку идентификаторов; порядок результата повторяет порядок списка. */
+/**
+ * Материалы по списку идентификаторов; порядок результата повторяет порядок списка.
+ *
+ * `coveredChunkCount` здесь остаётся нулевым: выборка обслуживает планирование
+ * урока, которому нужны статус, название и фрагменты, а не счётчик пройденного.
+ */
 export function findMaterialsByIds(ids: readonly Id[]): Material[] {
   if (ids.length === 0) {
     return [];
@@ -266,8 +313,12 @@ export function listMaterials(query: ListMaterialsQuery): Paginated<Material> {
   const rows = db
     .prepare(`SELECT * FROM materials${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
     .all(...parameters, limit, offset) as MaterialRow[];
+  const covered = findCoveredChunkCounts(rows.map((row) => row.id));
+  const materials = rows.map((row) =>
+    rowToMaterial(row, { coveredChunkCount: covered.get(row.id) ?? 0 }),
+  );
 
-  return toPage(rows.map(rowToMaterial), total, limit, offset);
+  return toPage(materials, total, limit, offset);
 }
 
 /** Число фрагментов материала. */

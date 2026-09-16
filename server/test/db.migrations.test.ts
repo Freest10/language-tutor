@@ -312,6 +312,7 @@ const materialFixture: Material = {
   level: 'A2',
   charCount: 120,
   chunkCount: 1,
+  coveredChunkCount: 0,
   pageCount: 2,
   topics: ['кафе', 'заказ'],
   summary: 'Диалоги в кафе.',

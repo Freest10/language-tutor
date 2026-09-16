@@ -48,7 +48,8 @@
       "sourceType": "Type",
       "size": "Size",
       "createdAt": "Added",
-      "chunks": "Fragments"
+      "chunks": "Fragments",
+      "covered": "Covered"
     },
     "actions": {
       "preview": "Show text",
@@ -91,6 +92,14 @@
     },
     "progressLabel": "The material is being processed",
     "notReadyForLesson": "The material can be picked for a lesson once the processing is over."
+  },
+  "coverage": {
+    "progress_one": "{{count}} fragment of {{total}}",
+    "progress_other": "{{count}} fragments of {{total}}",
+    "completed": {
+      "label": "Fully covered",
+      "hint": "No new fragments are left in this material: a lesson built from it repeats what you have already done."
+    }
   },
   "delete": {
     "title": "Confirm deletion",

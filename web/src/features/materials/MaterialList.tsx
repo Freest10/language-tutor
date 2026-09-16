@@ -9,12 +9,22 @@
  * ход работы живой областью `role="status"` (это не ошибка, а ожидаемое состояние)
  * и текстом прогресса самого сервера — своей доли выполнения клиент не считает.
  * Удалить такой материал можно: ждать распознавания никто не обязан.
+ *
+ * Пройденность показана двумя числами из контракта — «пройдено N из M фрагментов»
+ * — и отдельной пометкой у материала, отработанного целиком: полос и процентов
+ * здесь нет, потому что таких данных сервер не присылает. У нетронутого материала
+ * не показывается ничего: нулевой счётчик новому пользователю только мешает.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 
 import { isMaterialErrorStatus, type Material, type MaterialStatus } from '@lt/shared';
 
-import { useDeleteMaterial, useMaterialFormatters, useMaterialStatusText } from './useMaterials';
+import {
+  materialCoverage,
+  useDeleteMaterial,
+  useMaterialFormatters,
+  useMaterialStatusText,
+} from './useMaterials';
 
 import type { ApiError } from '../../api/client';
 import { useApiErrorMessage, useT } from '../../i18n/useT';
@@ -141,6 +151,7 @@ function MaterialRow({
   const { formatSize, formatDateTime } = useMaterialFormatters();
   const statusText = useMaterialStatusText();
   const status = statusText(material);
+  const coverage = materialCoverage(material);
   const titleId = useId();
 
   return (
@@ -164,8 +175,14 @@ function MaterialRow({
           }}
         >
           {status.label}
-        </span>
+        </span>{' '}
+        {coverage.isFullyCovered && (
+          <span className="lt-badge lt-badge--muted" data-covered="full">
+            {t('coverage.completed.label')}
+          </span>
+        )}
       </p>
+      {coverage.isFullyCovered && <p className="lt-page__lead">{t('coverage.completed.hint')}</p>}
       {status.isSelectable ? (
         status.serverMessage && <p className="lt-page__lead">{status.serverMessage}</p>
       ) : (
@@ -196,6 +213,13 @@ function MaterialRow({
 
         <dt>{t('list.fields.chunks')}</dt>
         <dd>{t('units.chunks', { count: material.chunkCount })}</dd>
+
+        {coverage.hasCovered && (
+          <>
+            <dt>{t('list.fields.covered')}</dt>
+            <dd>{t('coverage.progress', { count: coverage.covered, total: coverage.total })}</dd>
+          </>
+        )}
       </dl>
       <button
         type="button"

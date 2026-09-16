@@ -7,6 +7,9 @@
  * Пересборка плана идёт через ту же локальную модель, что и генерация, поэтому
  * ожидание показано скелетоном и строкой `role="status"`: десятки секунд тишины
  * выглядят как зависшая страница.
+ *
+ * Новый план, как и новый урок, обходит материал, пройденный на других уроках.
+ * Вернуться к нему можно флажком `includeCoveredMaterial` — по умолчанию он снят.
  */
 import { useId, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
@@ -139,9 +142,12 @@ export function LessonPlanView({
   const feedbackId = `${baseId}-feedback`;
   const feedbackHintId = `${baseId}-feedback-hint`;
   const keepId = `${baseId}-keep`;
+  const coveredId = `${baseId}-covered`;
+  const coveredHintId = `${baseId}-covered-hint`;
 
   const [feedback, setFeedback] = useState('');
   const [keepCompletedSteps, setKeepCompletedSteps] = useState(true);
+  const [includeCoveredMaterial, setIncludeCoveredMaterial] = useState(false);
 
   const plan = sortLessonPlan(lesson.plan);
   // `keepCompletedSteps` бережёт всё, что уже не `pending`: пройденное,
@@ -156,7 +162,7 @@ export function LessonPlanView({
     event.preventDefault();
 
     const trimmed = feedback.trim();
-    const body: RegenerateLessonPlanRequest = { keepCompletedSteps };
+    const body: RegenerateLessonPlanRequest = { keepCompletedSteps, includeCoveredMaterial };
 
     if (trimmed.length > 0) {
       body.feedback = trimmed;
@@ -284,6 +290,25 @@ export function LessonPlanView({
               <span className="lt-field__hint">{t('plan.regenerate.keepCompleted.hint')}</span>
             </div>
           )}
+
+          <div className="lt-field">
+            <span>
+              <input
+                id={coveredId}
+                type="checkbox"
+                checked={includeCoveredMaterial}
+                disabled={isRegenerating}
+                aria-describedby={coveredHintId}
+                onChange={(event) => {
+                  setIncludeCoveredMaterial(event.target.checked);
+                }}
+              />{' '}
+              <label htmlFor={coveredId}>{t('plan.regenerate.includeCovered.label')}</label>
+            </span>
+            <span className="lt-field__hint" id={coveredHintId}>
+              {t('plan.regenerate.includeCovered.hint')}
+            </span>
+          </div>
 
           {isRegenerating && (
             <LoadingBlock label={t('plan.regenerate.pending.title')}>

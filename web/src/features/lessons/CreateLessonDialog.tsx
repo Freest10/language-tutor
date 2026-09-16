@@ -13,6 +13,12 @@
  * Необработанный материал сервер не пропускает молча: он отвечает 400
  * `materials_not_ready` и урок не создаёт. Диалог перечисляет такие материалы
  * с их статусом — иначе непонятно, почему урок не строится на загруженном скане.
+ *
+ * По умолчанию урок идёт по новому материалу: пройденные фрагменты сервер не
+ * предлагает второй раз. Вернуться к пройденному можно, но только намеренно —
+ * флажком `includeCoveredMaterial`. А если весь выбранный материал уже
+ * отработан, диалог говорит об этом до генерации: узнать, что урок вышел
+ * повторением, уже после минуты ожидания модели — обидно.
  */
 import {
   useEffect,
@@ -29,6 +35,7 @@ import {
   type CreateLessonRequest,
   type Lesson,
   type LessonStepType,
+  type Material,
 } from '@lt/shared';
 
 import { MaterialPicker } from './MaterialPicker';
@@ -45,6 +52,7 @@ import {
 import { LESSON_TOPIC_MAX_LENGTH, notReadyMaterials } from '../../api/lessons';
 import { LoadingBlock } from '../../components/LoadingBlock';
 import { useT } from '../../i18n/useT';
+import { materialCoverage } from '../materials/useMaterials';
 
 /**
  * Свойства диалога создания урока.
@@ -100,11 +108,17 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
   const topicId = `${baseId}-topic`;
   const topicHintId = `${baseId}-topic-hint`;
   const focusHintId = `${baseId}-focus-hint`;
+  const coveredId = `${baseId}-covered`;
+  const coveredHintId = `${baseId}-covered-hint`;
 
   const [topic, setTopic] = useState('');
   const [materialIds, setMaterialIds] = useState<readonly string[]>([]);
+  // Выбранные материалы целиком, а не только их идентификаторы: по ним видно,
+  // остался ли в выборе новый материал.
+  const [selectedMaterials, setSelectedMaterials] = useState<readonly Material[]>([]);
   const [focus, setFocus] = useState<readonly LessonStepType[]>([]);
   const [duration, setDuration] = useState<LessonDuration>(DEFAULT_DURATION);
+  const [includeCoveredMaterial, setIncludeCoveredMaterial] = useState(false);
 
   useEffect(() => {
     // Фокус уходит в диалог, а при закрытии возвращается туда, откуда его открыли.
@@ -121,6 +135,13 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
 
   // Материалы, из-за которых сервер отказался планировать урок (400).
   const notReady = useMemo(() => notReadyMaterials(create.error), [create.error]);
+  // Весь выбранный материал уже отработан: нового в таком уроке не будет.
+  const allMaterialsCovered = useMemo(
+    () =>
+      selectedMaterials.length > 0 &&
+      selectedMaterials.every((material) => materialCoverage(material).isFullyCovered),
+    [selectedMaterials],
+  );
   const isBusy = create.isPending;
   // Кнопку генерации прячем, только когда сервер прямо сказал, что модели нет:
   // при неизвестной конфигурации попытку стоит дать.
@@ -173,7 +194,7 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
 
   const submit = (): void => {
     const trimmedTopic = topic.trim();
-    const body: CreateLessonRequest = { durationMinutes: duration };
+    const body: CreateLessonRequest = { durationMinutes: duration, includeCoveredMaterial };
 
     if (trimmedTopic.length > 0) {
       body.topic = trimmedTopic;
@@ -275,7 +296,40 @@ export function CreateLessonDialog({ onClose, onCreated }: CreateLessonDialogPro
             </span>
           </div>
 
-          <MaterialPicker selectedIds={materialIds} onChange={setMaterialIds} disabled={isBusy} />
+          <MaterialPicker
+            selectedIds={materialIds}
+            onChange={(ids, materials) => {
+              setMaterialIds(ids);
+              setSelectedMaterials(materials);
+            }}
+            disabled={isBusy}
+          />
+
+          {allMaterialsCovered && (
+            <div className="lt-banner" role="status">
+              <p className="lt-banner__title">{t('create.allCovered.title')}</p>
+              <p>{t('create.allCovered.description')}</p>
+            </div>
+          )}
+
+          <div className="lt-field">
+            <span>
+              <input
+                id={coveredId}
+                type="checkbox"
+                checked={includeCoveredMaterial}
+                disabled={isBusy}
+                aria-describedby={coveredHintId}
+                onChange={(event) => {
+                  setIncludeCoveredMaterial(event.target.checked);
+                }}
+              />{' '}
+              <label htmlFor={coveredId}>{t('create.includeCovered.label')}</label>
+            </span>
+            <span className="lt-field__hint" id={coveredHintId}>
+              {t('create.includeCovered.hint')}
+            </span>
+          </div>
 
           <fieldset
             className="lt-field"

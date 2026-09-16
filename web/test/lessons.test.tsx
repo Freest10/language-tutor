@@ -27,7 +27,7 @@ import {
 } from '@lt/shared';
 
 import { App } from '../src/App';
-import { i18n } from '../src/i18n';
+import { i18n, resources } from '../src/i18n';
 import { createQueryClient } from '../src/lib/queryClient';
 import { lessonPlanPath, lessonRoomPath, routes } from '../src/router';
 
@@ -118,6 +118,7 @@ function material(overrides: Partial<Material> & Pick<Material, 'id' | 'title'>)
     level: 'B1',
     charCount: 1200,
     chunkCount: 3,
+    coveredChunkCount: 0,
     pageCount: null,
     topics: [],
     summary: null,
@@ -409,6 +410,107 @@ describe('создание урока', () => {
     expect(
       await screen.findByRole('heading', { level: 2, name: 'Talking about the news' }),
     ).toBeInTheDocument();
+  });
+
+  it('по умолчанию просит у сервера только новый материал', async () => {
+    stubCreate(() => jsonResponse(CREATED, 201));
+
+    const { user } = renderApp('/lessons');
+
+    await fillForm(user);
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: i18n.t('lessons:plan.title') }),
+    ).toBeInTheDocument();
+
+    // Флажок снят: пройденное на прошлых уроках сервер брать не должен.
+    const sent = bodyOf<CreateLessonRequest>(lastCall('POST', '/lessons'));
+
+    expect(sent.includeCoveredMaterial).toBe(false);
+  });
+
+  it('флажком «повторить пройденное» разрешает серверу брать отработанное', async () => {
+    stubCreate(() => jsonResponse(CREATED, 201));
+
+    const { user } = renderApp('/lessons');
+
+    await fillForm(user);
+    await user.click(
+      screen.getByRole('checkbox', { name: i18n.t('lessons:create.includeCovered.label') }),
+    );
+    await user.click(screen.getByRole('button', { name: i18n.t('lessons:create.submit') }));
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: i18n.t('lessons:plan.title') }),
+    ).toBeInTheDocument();
+
+    const sent = bodyOf<CreateLessonRequest>(lastCall('POST', '/lessons'));
+
+    expect(sent.includeCoveredMaterial).toBe(true);
+  });
+
+  it('предупреждает о повторении, когда весь выбранный материал пройден', async () => {
+    const exhausted = material({
+      id: 'm-3',
+      title: 'Oxford Navigate B1',
+      chunkCount: 185,
+      coveredChunkCount: 185,
+    });
+    const started = material({
+      id: 'm-4',
+      title: 'Grammar drills',
+      chunkCount: 10,
+      coveredChunkCount: 3,
+    });
+
+    stubFetch((record) => {
+      if (record.path.endsWith('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.path === `${API_PREFIX}/materials`) {
+        return jsonResponse(listPage([exhausted, started, ...MATERIALS]));
+      }
+
+      return jsonResponse(listPage<Lesson>([]));
+    });
+
+    const { user } = renderApp('/lessons');
+
+    await user.click(await screen.findByRole('button', { name: i18n.t('lessons:create.open') }));
+
+    const exhaustedOption = await screen.findByRole('checkbox', { name: 'Oxford Navigate B1' });
+
+    // Материал, отработанный целиком, помечен отдельно от счётчика.
+    expect(screen.getByText(i18n.t('lessons:materials.coverage.completed'))).toBeInTheDocument();
+    // Начатый материал показывает, сколько его осталось.
+    expect(
+      screen.getByText(i18n.t('lessons:materials.coverage.progress', { count: 3, total: 10 })),
+    ).toBeInTheDocument();
+    // Нетронутый материал о пройденном молчит.
+    expect(
+      screen.queryByText(i18n.t('lessons:materials.coverage.progress', { count: 0, total: 3 })),
+    ).not.toBeInTheDocument();
+    // Пока ничего не выбрано, предупреждать не о чем.
+    expect(
+      screen.queryByText(i18n.t('lessons:create.allCovered.description')),
+    ).not.toBeInTheDocument();
+
+    await user.click(exhaustedOption);
+
+    expect(
+      await screen.findByText(i18n.t('lessons:create.allCovered.description')),
+    ).toBeInTheDocument();
+
+    // Стоит добавить материал с новым содержимым — и повторения уже не будет.
+    await user.click(screen.getByRole('checkbox', { name: 'Grammar drills' }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(i18n.t('lessons:create.allCovered.description')),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it('не перечитывает только что созданный урок при открытии плана', async () => {
@@ -814,6 +916,53 @@ describe('план урока', () => {
 
     expect(sent.feedback).toBe('More speaking, less grammar');
     expect(sent.keepCompletedSteps).toBe(true);
+    // Пересборка тоже по умолчанию идёт по новому материалу.
+    expect(sent.includeCoveredMaterial).toBe(false);
+  });
+
+  it('пересборка плана отправляет флаг повторения пройденного', async () => {
+    stubFetch((record) => {
+      if (record.path.endsWith('/config')) {
+        return jsonResponse(CONFIG_FIXTURE);
+      }
+
+      if (record.path === `${API_PREFIX}/lessons/l-1/plan/regenerate`) {
+        return jsonResponse(PLANNED);
+      }
+
+      return jsonResponse({ lesson: PLANNED, exercises: [], attempts: [] });
+    });
+
+    const { user } = renderApp(lessonPlanPath('l-1'));
+
+    const submit = await screen.findByRole('button', {
+      name: i18n.t('lessons:plan.regenerate.submit'),
+    });
+
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(
+        bodyOf<RegenerateLessonPlanRequest>(lastCall('POST', '/lessons/l-1/plan/regenerate'))
+          .includeCoveredMaterial,
+      ).toBe(false);
+    });
+
+    await user.click(
+      screen.getByRole('checkbox', {
+        name: i18n.t('lessons:plan.regenerate.includeCovered.label'),
+      }),
+    );
+    await user.click(
+      screen.getByRole('button', { name: i18n.t('lessons:plan.regenerate.submit') }),
+    );
+
+    await waitFor(() => {
+      expect(
+        bodyOf<RegenerateLessonPlanRequest>(lastCall('POST', '/lessons/l-1/plan/regenerate'))
+          .includeCoveredMaterial,
+      ).toBe(true);
+    });
   });
 
   it('на 503 сообщает, что модель недоступна', async () => {
@@ -904,5 +1053,25 @@ describe('план урока', () => {
     renderApp(lessonPlanPath('l-404'));
 
     expect(await screen.findByText(i18n.t('lessons:plan.errors.notFound'))).toBeInTheDocument();
+  });
+});
+
+describe('переводы раздела', () => {
+  /** Плоские ключи словаря; суффиксы множественного числа отброшены. */
+  function translationKeys(node: unknown, prefix = ''): string[] {
+    if (typeof node !== 'object' || node === null) {
+      return [prefix.replace(/_(one|few|many|other)$/, '')];
+    }
+
+    return Object.entries(node).flatMap(([key, value]) =>
+      translationKeys(value, prefix === '' ? key : `${prefix}.${key}`),
+    );
+  }
+
+  it('держит наборы ключей lessons.json одинаковыми в en и ru', () => {
+    const en = [...new Set(translationKeys(resources.en.lessons))].sort();
+    const ru = [...new Set(translationKeys(resources.ru.lessons))].sort();
+
+    expect(ru).toEqual(en);
   });
 });

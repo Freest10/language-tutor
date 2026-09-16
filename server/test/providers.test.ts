@@ -362,14 +362,25 @@ describe('структурированный JSON', () => {
 
     expect(result.data).toEqual({ level: 'B1', score: 9 });
     expect(result.attempts).toBe(1);
-    expect(result.jsonModeUsed).toBe(true);
+    expect(result.format).toBe('json_schema');
 
     const messages = requestBody(fetchMock, 0).messages as { role: string; content: string }[];
 
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toContain('placement_result');
     expect(messages[0]?.content).toContain('"level"');
-    expect(requestBody(fetchMock, 0).response_format).toEqual({ type: 'json_object' });
+    expect(requestBody(fetchMock, 0).response_format).toMatchObject({
+      type: 'json_schema',
+      json_schema: {
+        name: 'placement_result',
+        schema: {
+          type: 'object',
+          properties: { level: { type: 'string' }, score: { type: 'integer' } },
+          required: ['level', 'score'],
+          additionalProperties: false,
+        },
+      },
+    });
   });
 
   it('просит модель исправить ответ, не прошедший схему', async () => {
@@ -436,10 +447,10 @@ describe('структурированный JSON', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('повторяет запрос без response_format, если эндпоинт его не поддерживает', async () => {
+  it('отступает на json_object, если сервер не знает строгой схемы', async () => {
     const fetchMock: FetchMock = vi
       .fn<(url: string, init: RequestInit) => Promise<Response>>()
-      .mockResolvedValueOnce(jsonResponse({ error: 'unknown field response_format' }, 400))
+      .mockResolvedValueOnce(jsonResponse({ error: 'unknown response_format type' }, 400))
       .mockResolvedValueOnce(chatResponse('{"level":"A2","score":4}'));
 
     stubFetch(fetchMock);
@@ -451,9 +462,50 @@ describe('структурированный JSON', () => {
     });
 
     expect(result.data).toEqual({ level: 'A2', score: 4 });
-    expect(result.jsonModeUsed).toBe(false);
-    expect(requestBody(fetchMock, 0).response_format).toEqual({ type: 'json_object' });
-    expect(requestBody(fetchMock, 1).response_format).toBeUndefined();
+    expect(result.format).toBe('json_object');
+    expect(requestBody(fetchMock, 0).response_format).toMatchObject({ type: 'json_schema' });
+    expect(requestBody(fetchMock, 1).response_format).toEqual({ type: 'json_object' });
+  });
+
+  it('доходит по лестнице до запроса без response_format', async () => {
+    const fetchMock: FetchMock = vi
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(jsonResponse({ error: 'unknown response_format type' }, 400))
+      .mockResolvedValueOnce(jsonResponse({ error: 'unknown field response_format' }, 400))
+      .mockResolvedValueOnce(chatResponse('{"level":"A2","score":4}'));
+    const logger = createLogger();
+
+    stubFetch(fetchMock);
+
+    const result = await requestStructuredJson({
+      schema,
+      logger,
+      provider: createLlmProvider(LLM_OPTIONS),
+      messages: [{ role: 'user', content: 'оцени уровень' }],
+    });
+
+    expect(result.data).toEqual({ level: 'A2', score: 4 });
+    expect(result.format).toBe('text');
+    expect(requestBody(fetchMock, 2).response_format).toBeUndefined();
+    expect(logger.entries).toHaveLength(2);
+  });
+
+  it('не принимает 404 за неподдержанный режим: это ненайденная модель', async () => {
+    const fetchMock: FetchMock = vi.fn(async () =>
+      jsonResponse({ error: { message: "model 'qwen3:8b' not found" } }, 404),
+    );
+
+    stubFetch(fetchMock);
+
+    const error = await requestStructuredJson({
+      schema,
+      provider: createLlmProvider(LLM_OPTIONS),
+      messages: [{ role: 'user', content: 'оцени уровень' }],
+    }).catch((reason: unknown) => reason);
+
+    expect(isProviderError(error) && error.kind).toBe('model_not_found');
+    expect(isProviderError(error) && error.message).toContain('qwen3:8b');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('берёт провайдер из переменных окружения, если он не передан', async () => {

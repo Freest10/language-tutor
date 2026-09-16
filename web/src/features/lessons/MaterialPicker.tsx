@@ -8,6 +8,10 @@
  * Выбрать можно только материал со статусом `ready`. Остальные видны, но
  * недоступны, и рядом с каждым написано, почему: иначе пользователь не поймёт,
  * куда делся его скан PDF, и решит, что приложение потеряло файл.
+ *
+ * Рядом с материалом видно, сколько его уже отработано: без этого невозможно
+ * понять, почему очередной урок берёт из учебника всё меньше нового, и
+ * останется ли в нём вообще новый материал.
  */
 import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -24,13 +28,19 @@ import {
 
 import { useT } from '../../i18n/useT';
 import { ROUTE_PATHS } from '../../router';
+import { materialCoverage } from '../materials/useMaterials';
 
 /** Свойства выбора материалов. */
 export interface MaterialPickerProps {
   /** Выбранные материалы. */
   selectedIds: readonly string[];
-  /** Новый набор выбранных материалов. */
-  onChange: (materialIds: readonly string[]) => void;
+  /**
+   * Новый набор выбранных материалов.
+   *
+   * Вторым аргументом идут сами материалы: диалогу нужна их пройденность,
+   * а список материалов читает этот компонент, а не он.
+   */
+  onChange: (materialIds: readonly string[], materials: readonly Material[]) => void;
   /** Блокирует выбор — например, пока модель готовит план. */
   disabled?: boolean;
   /** Сколько материалов допустимо выбрать. */
@@ -61,6 +71,7 @@ function MaterialOption({
   const t = useT('lessons');
   const statusText = useLessonMaterialStatusText();
   const status = statusText(material);
+  const coverage = materialCoverage(material);
   const inputId = useId();
   const hintId = `${inputId}-hint`;
   const tone = status.isError ? 'error' : status.isPending ? 'warn' : 'ok';
@@ -68,6 +79,10 @@ function MaterialOption({
     status.isSelectable ? null : status.hint,
     status.serverMessage,
     limitReached ? t('materials.limitReached', { max }) : null,
+    // Нетронутый материал о пройденном молчит: пустой счётчик ничего не объясняет.
+    coverage.hasCovered
+      ? t('materials.coverage.progress', { count: coverage.covered, total: coverage.total })
+      : null,
   ].filter((hint): hint is string => typeof hint === 'string' && hint.length > 0);
 
   return (
@@ -89,6 +104,11 @@ function MaterialOption({
         />
         <label htmlFor={inputId}>{material.title}</label>
         <span className={`lt-badge lt-badge--${tone}`}>{status.label}</span>
+        {coverage.isFullyCovered && (
+          <span className="lt-badge lt-badge--muted" data-covered="full">
+            {t('materials.coverage.completed')}
+          </span>
+        )}
       </span>
       {hints.length > 0 && (
         <span className="lt-status" id={hintId}>
@@ -115,18 +135,26 @@ export function MaterialPicker({
   const hintId = useId();
   const limitReached = selectedIds.length >= max;
 
+  /** Сообщает новый выбор: идентификаторы и сами материалы этого выбора. */
+  const apply = (ids: readonly string[]): void => {
+    onChange(
+      ids,
+      materials.filter((material) => ids.includes(material.id)),
+    );
+  };
+
   const toggle = (materialId: string, selected: boolean): void => {
     if (selected) {
       if (selectedIds.includes(materialId) || limitReached) {
         return;
       }
 
-      onChange([...selectedIds, materialId]);
+      apply([...selectedIds, materialId]);
 
       return;
     }
 
-    onChange(selectedIds.filter((id) => id !== materialId));
+    apply(selectedIds.filter((id) => id !== materialId));
   };
 
   return (

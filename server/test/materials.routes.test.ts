@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { FastifyInstance } from 'fastify';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   API_PREFIX,
@@ -165,6 +165,54 @@ function chunkCountOf(id: string): number {
   return row.total;
 }
 
+/** Идентификаторы фрагментов материала в порядке чтения. */
+function chunkIdsOf(materialId: string): string[] {
+  const rows = getDb()
+    .prepare('SELECT id FROM material_chunks WHERE material_id = ? ORDER BY "order" ASC')
+    .all(materialId) as { id: string }[];
+
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Кладёт в базу урок с единственным шагом плана на перечисленных фрагментах.
+ * Статус шага задаётся явно: пройденным материал делает только `completed`.
+ */
+function seedLessonStep(options: {
+  lessonId: string;
+  materialId: string;
+  chunkIds: readonly string[];
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
+}): void {
+  const db = getDb();
+  const now = '2026-09-02T10:00:00.000Z';
+
+  db.prepare(
+    `INSERT INTO lessons (id, title, status, learning_language, explanation_language, level,
+       topic, goals, current_step_id, planned_minutes, summary, started_at, completed_at,
+       created_at, updated_at)
+     VALUES (@id, 'Урок по учебнику', 'in_progress', 'de', 'ru', 'B1', NULL, '[]', NULL, 20,
+       NULL, @now, NULL, @now, @now)`,
+  ).run({ id: options.lessonId, now });
+  db.prepare(
+    `INSERT INTO lesson_materials (lesson_id, material_id, "order", created_at)
+     VALUES (@lesson_id, @material_id, 0, @now)`,
+  ).run({ lesson_id: options.lessonId, material_id: options.materialId, now });
+  db.prepare(
+    `INSERT INTO lesson_plan_steps (id, lesson_id, "order", type, title, objectives,
+       target_items, instructions, estimated_minutes, status, material_chunk_ids, exercise_ids,
+       started_at, completed_at)
+     VALUES (@id, @lesson_id, 0, 'reading', 'Читаем учебник', '[]', '[]', 'Прочитайте отрывок.',
+       10, @status, @material_chunk_ids, '[]', @now, @now)`,
+  ).run({
+    id: `${options.lessonId}-step`,
+    lesson_id: options.lessonId,
+    status: options.status,
+    material_chunk_ids: JSON.stringify(options.chunkIds),
+    now,
+  });
+}
+
 /** Все фрагменты материала одной страницей. */
 async function fetchChunks(id: string) {
   const response = await app.inject({
@@ -203,6 +251,9 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  // Уроки чистятся вместе с материалами: по их шагам считается `coveredChunkCount`,
+  // и оставшийся от соседнего теста урок сделал бы счётчик чужим.
+  getDb().exec('DELETE FROM lessons');
   getDb().exec('DELETE FROM materials');
 
   for (const entry of readdirSync(uploadDir)) {
@@ -728,6 +779,42 @@ describe('getChunksForLesson', () => {
     });
   });
 
+  it('не берёт пройденные фрагменты', async () => {
+    const material = await uploadMaterial({
+      fileName: 'sample.txt',
+      contentType: 'text/plain',
+      content: fixture('sample.txt'),
+    });
+    const ids = chunkIdsOf(material.id);
+
+    expect(ids.length).toBeGreaterThan(1);
+
+    const selection = getChunksForLesson([material.id], 100_000, {
+      excludeChunkIds: new Set(ids.slice(0, 1)),
+    });
+
+    expect(selection.chunks.map((entry) => entry.chunk.id)).toEqual(ids.slice(1));
+    expect(selection.allCovered).toBe(false);
+  });
+
+  it('возвращает пройденное и поднимает allCovered, когда свежего не осталось', async () => {
+    const material = await uploadMaterial({
+      fileName: 'sample.txt',
+      contentType: 'text/plain',
+      content: fixture('sample.txt'),
+    });
+    const ids = chunkIdsOf(material.id);
+    // Материал пройден целиком: пустой отбор дал бы урок ни о чём, поэтому
+    // фрагменты возвращаются как есть, но помеченные как повторение.
+    const selection = getChunksForLesson([material.id], 100_000, {
+      excludeChunkIds: new Set(ids),
+    });
+
+    expect(selection.chunks.map((entry) => entry.chunk.id)).toEqual(ids);
+    expect(selection.allCovered).toBe(true);
+    expect(selection.skippedMaterialIds).toEqual([]);
+  });
+
   it('не берёт ни одного фрагмента при нулевом бюджете', async () => {
     // Материал настоящий и готовый: пустой результат обязан быть следствием
     // бюджета, а не того, что брать было нечего.
@@ -745,5 +832,115 @@ describe('getChunksForLesson', () => {
       skippedMaterialIds: [material.id],
     });
     expect(getChunksForLesson([material.id], -1).chunks).toEqual([]);
+  });
+});
+
+describe('счётчик пройденного материала', () => {
+  /** Материал из фикстуры `sample.txt`: фрагментов в нём заведомо больше двух. */
+  async function seedSampleMaterial(): Promise<Material> {
+    return uploadMaterial({
+      fileName: 'sample.txt',
+      contentType: 'text/plain',
+      content: fixture('sample.txt'),
+    });
+  }
+
+  /** Материал из списка `GET /api/materials`. */
+  async function fetchFromList(id: string): Promise<Material> {
+    const response = await app.inject({ method: 'GET', url: `${API_PREFIX}/materials?limit=100` });
+
+    expect(response.statusCode).toBe(200);
+
+    const material = listMaterialsResponseSchema
+      .parse(response.json())
+      .items.find((item) => item.id === id);
+
+    expect(material).toBeDefined();
+
+    return material as Material;
+  }
+
+  /** Материал из `GET /api/materials/:id`. */
+  async function fetchOne(id: string): Promise<Material> {
+    const response = await app.inject({ method: 'GET', url: `${API_PREFIX}/materials/${id}` });
+
+    expect(response.statusCode).toBe(200);
+
+    return getMaterialResponseSchema.parse(response.json()).material;
+  }
+
+  it('нетронутый материал не считается пройденным', async () => {
+    const material = await seedSampleMaterial();
+
+    expect(material.coveredChunkCount).toBe(0);
+    expect((await fetchOne(material.id)).coveredChunkCount).toBe(0);
+    expect((await fetchFromList(material.id)).coveredChunkCount).toBe(0);
+  });
+
+  it('считает фрагменты завершённых шагов и не выходит за общее число', async () => {
+    const material = await seedSampleMaterial();
+    const ids = chunkIdsOf(material.id);
+
+    seedLessonStep({
+      lessonId: 'lesson-covered',
+      materialId: material.id,
+      chunkIds: ids.slice(0, 1),
+      status: 'completed',
+    });
+
+    const fromList = await fetchFromList(material.id);
+
+    expect(fromList.coveredChunkCount).toBe(1);
+    expect(fromList.chunkCount).toBeGreaterThan(1);
+    expect((await fetchOne(material.id)).coveredChunkCount).toBe(1);
+
+    // Весь материал целиком: счётчик не превышает числа фрагментов даже тогда,
+    // когда один и тот же фрагмент назван в двух уроках.
+    seedLessonStep({
+      lessonId: 'lesson-covered-again',
+      materialId: material.id,
+      chunkIds: ids,
+      status: 'completed',
+    });
+
+    const covered = await fetchOne(material.id);
+
+    expect(covered.coveredChunkCount).toBe(covered.chunkCount);
+  });
+
+  it('не считает пройденным пропущенный шаг', async () => {
+    const material = await seedSampleMaterial();
+
+    seedLessonStep({
+      lessonId: 'lesson-skipped',
+      materialId: material.id,
+      chunkIds: chunkIdsOf(material.id),
+      status: 'skipped',
+    });
+
+    expect((await fetchOne(material.id)).coveredChunkCount).toBe(0);
+    expect((await fetchFromList(material.id)).coveredChunkCount).toBe(0);
+  });
+
+  it('собирает счётчик одним запросом на всю страницу списка', async () => {
+    for (const index of [0, 1, 2]) {
+      const material = await seedSampleMaterial();
+
+      seedLessonStep({
+        lessonId: `lesson-${String(index)}`,
+        materialId: material.id,
+        chunkIds: chunkIdsOf(material.id).slice(0, 1),
+        status: 'completed',
+      });
+    }
+
+    const prepare = vi.spyOn(getDb(), 'prepare');
+    const page = await app.inject({ method: 'GET', url: `${API_PREFIX}/materials?limit=100` });
+    const statements = prepare.mock.calls.map(([sql]) => String(sql));
+
+    prepare.mockRestore();
+
+    expect(listMaterialsResponseSchema.parse(page.json()).items).toHaveLength(3);
+    expect(statements.filter((sql) => sql.includes('lesson_plan_steps'))).toHaveLength(1);
   });
 });
