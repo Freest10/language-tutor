@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  createTextMaterialRequestSchema,
+  MAX_MATERIAL_TEXT_LENGTH,
   API_PREFIX,
   apiErrorResponseSchema,
   getConfigResponseSchema,
@@ -9,7 +11,7 @@ import {
 } from '@lt/shared';
 
 import { buildApp } from '../src/app.js';
-import { APP_VERSION, EnvValidationError, parseEnv } from '../src/config/env.js';
+import { APP_VERSION, env, EnvValidationError, parseEnv } from '../src/config/env.js';
 import { IN_MEMORY_DB_PATH, openDatabase, setDb } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
 import { parseBody } from '../src/lib/validate.js';
@@ -108,6 +110,53 @@ describe('GET /api/config', () => {
     expect(config.supportedLanguages.length).toBeGreaterThan(0);
     expect(config.limits.maxPageSize).toBeGreaterThan(0);
   });
+
+  it('отдаёт ДЕЙСТВУЮЩИЕ пределы загрузки, а не константы контракта', async () => {
+    // Клиент проверяет файл до отправки по этим числам и рисует по ним подсказку.
+    // Пока сюда уходили константы из @lt/shared, поднять предел через окружение
+    // было невозможно, а UI обещал пользователю не тот размер, который примет
+    // сервер.
+    const response = await app.inject({ method: 'GET', url: `${API_PREFIX}/config` });
+    const config = getConfigResponseSchema.parse(response.json());
+
+    expect(config.limits.maxMaterialUploadBytes).toBe(env.maxUploadBytes);
+  });
+
+  it('maxMaterialTextLength остаётся пределом ВСТАВЛЕННОГО текста', async () => {
+    // Клиент считает по этому числу символы в поле «вставить текст», поэтому
+    // оно обязано совпадать со схемой вставки, а не с пределом извлечения из
+    // файла: иначе UI разрешил бы вставить больше, чем примет сервер.
+    const response = await app.inject({ method: 'GET', url: `${API_PREFIX}/config` });
+    const config = getConfigResponseSchema.parse(response.json());
+
+    expect(config.limits.maxMaterialTextLength).toBe(MAX_MATERIAL_TEXT_LENGTH);
+    expect(
+      createTextMaterialRequestSchema.safeParse({ text: 'x'.repeat(MAX_MATERIAL_TEXT_LENGTH) })
+        .success,
+    ).toBe(true);
+    expect(
+      createTextMaterialRequestSchema.safeParse({ text: 'x'.repeat(MAX_MATERIAL_TEXT_LENGTH + 1) })
+        .success,
+    ).toBe(false);
+  });
+
+  it('предел загрузки поднимается через MAX_UPLOAD_MB', () => {
+    expect(parseEnv({ MAX_UPLOAD_MB: '512' }).maxUploadBytes).toBe(512 * 1024 * 1024);
+    expect(parseEnv({ MAX_MATERIAL_TEXT_CHARS: '12000000' }).maxMaterialTextChars).toBe(12_000_000);
+  });
+
+  it('предел символов выводится из размера файла, если не задан явно', () => {
+    // Два независимых числа противоречили бы друг другу: файл прошёл бы по
+    // размеру и умер на символах уже ПОСЛЕ успешной загрузки.
+    expect(parseEnv({ MAX_UPLOAD_MB: '50' }).maxMaterialTextChars).toBe(55_000_000);
+    expect(parseEnv({ MAX_UPLOAD_MB: '1' }).maxMaterialTextChars).toBe(1_100_000);
+    // Явное значение сильнее выведенного.
+    expect(
+      parseEnv({ MAX_UPLOAD_MB: '200', MAX_MATERIAL_TEXT_CHARS: '3000' }).maxMaterialTextChars,
+    ).toBe(3000);
+    // Потолок держит вывод в разумных рамках даже на предельном MAX_UPLOAD_MB.
+    expect(parseEnv({ MAX_UPLOAD_MB: '1024' }).maxMaterialTextChars).toBe(250_000_000);
+  });
 });
 
 describe('обработчик ошибок', () => {
@@ -202,7 +251,8 @@ describe('разбор переменных окружения', () => {
     expect(parsed.llmBaseUrl).toBe('http://localhost:11434/v1');
     expect(parsed.sttProvider).toBe('browser');
     expect(parsed.ttsProvider).toBe('browser');
-    expect(parsed.maxUploadBytes).toBe(25 * 1024 * 1024);
+    expect(parsed.maxUploadBytes).toBe(200 * 1024 * 1024);
+    expect(parsed.maxMaterialTextChars).toBe(220_000_000);
   });
 
   it('считает пустой DB_PATH незаданным', () => {

@@ -13,7 +13,9 @@
  */
 import { PDFParse } from 'pdf-parse';
 
-import { MAX_MATERIAL_TEXT_LENGTH, type MaterialErrorStatus } from '@lt/shared';
+import { type MaterialErrorStatus } from '@lt/shared';
+
+import { env } from '../config/env.js';
 
 /** Страница PDF с извлечённым текстом. */
 export interface ExtractedPage {
@@ -142,13 +144,22 @@ export async function extractText(data: Buffer, format: ExtractableFormat): Prom
   return format === 'pdf' ? extractPdfText(data) : extractPlainText(data);
 }
 
-/** Проверяет, что текст помещается в предел `MAX_MATERIAL_TEXT_LENGTH`. */
-export function ensureWithinTextLimit(text: string): void {
-  if (text.length > MAX_MATERIAL_TEXT_LENGTH) {
+/**
+ * Проверяет, что извлечённый текст помещается в действующий предел.
+ *
+ * Предел берётся из `MAX_MATERIAL_TEXT_CHARS`, а не из константы контракта:
+ * константа описывает лимит вставленного вручную текста (поле формы), а книга
+ * в PDF весит немного, но разворачивается в миллионы символов. Ограничение
+ * защищает память и время чанкинга; на размер промпта оно не влияет — туда
+ * уходит только отобранная под бюджет выборка фрагментов.
+ */
+export function ensureWithinTextLimit(text: string, limit = env.maxMaterialTextChars): void {
+  if (text.length > limit) {
     throw new TextExtractionError(
       'error_too_large',
       `Текст материала — ${text.length} символов, это больше предела ` +
-        `в ${MAX_MATERIAL_TEXT_LENGTH} символов. Разделите материал на части.`,
+        `в ${limit} символов. Разделите материал на части или поднимите ` +
+        'MAX_MATERIAL_TEXT_CHARS в .env.',
     );
   }
 }

@@ -15,7 +15,6 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 
 import {
   MATERIAL_SUPPORTED_MIME_TYPES,
-  MAX_MATERIAL_UPLOAD_BYTES,
   DEFAULT_LANGUAGE_CODE,
   type GetMaterialResponse,
   type Id,
@@ -58,7 +57,15 @@ import {
 } from '../repositories/materialRepository.js';
 
 /** Предел размера загружаемого файла: меньшее из ограничения контракта и `MAX_UPLOAD_MB`. */
-export const MAX_UPLOAD_BYTES = Math.min(MAX_MATERIAL_UPLOAD_BYTES, env.maxUploadBytes);
+/**
+ * Действующий предел размера загружаемого файла.
+ *
+ * Берётся из `MAX_UPLOAD_MB`, а не из константы контракта: константа задаёт
+ * лишь значение по умолчанию для клиента, когда конфигурация сервера ещё не
+ * получена. Раньше здесь стоял `Math.min` с константой, из-за чего поднять
+ * предел через окружение было невозможно.
+ */
+export const MAX_UPLOAD_BYTES = env.maxUploadBytes;
 
 /** Название материала, если его неоткуда взять. */
 const FALLBACK_TITLE = 'Материал без названия';

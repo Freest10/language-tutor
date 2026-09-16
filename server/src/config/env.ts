@@ -124,11 +124,20 @@ export const envSchema = z.object({
     .max(1024)
     .default('./data/uploads'),
   MAX_UPLOAD_MB: z.coerce
-    .number({ error: 'ожидается размер в мегабайтах (целое число ≥ 1)' })
+    .number({ error: 'ожидается размер в мегабайтах от 1 до 1024' })
     .int()
     .min(1)
     .max(1024)
-    .default(25),
+    .default(200),
+  // Предел ИЗВЛЕЧЁННОГО текста, а не файла. Пусто — вывести из MAX_UPLOAD_MB.
+  // Держать два независимых числа нельзя: иначе файл проходит по размеру и
+  // умирает на символах, причём уже после успешной загрузки.
+  MAX_MATERIAL_TEXT_CHARS: z.coerce
+    .number({ error: 'ожидается число символов от 1 000 до 250 000 000' })
+    .int()
+    .min(1000)
+    .max(250_000_000)
+    .optional(),
 
   // ---------- HTTP ----------
   CORS_ORIGIN: optionalString(2048, 'ожидается список источников через запятую'),
@@ -187,7 +196,9 @@ export interface Env {
   maxUploadMb: number;
   /** Тот же предел в байтах: значение для `@fastify/multipart`. */
   maxUploadBytes: number;
-  /** Разрешённые источники CORS; `undefined` — отражать Origin запроса. */
+  /** Предел извлечённого из файла текста в символах (не размер файла). */
+  maxMaterialTextChars: number;
+  /** Разрешённые источники CORS; пусто в env — только собственный веб. */
   corsOrigin: string[];
   /** Базовый URL OpenAI-совместимого API языковой модели. */
   llmBaseUrl: string;
@@ -292,6 +303,7 @@ function toEnv(raw: RawEnv): Env {
     uploadDir: isAbsolute(raw.UPLOAD_DIR) ? raw.UPLOAD_DIR : resolve(workspaceRoot, raw.UPLOAD_DIR),
     maxUploadMb: raw.MAX_UPLOAD_MB,
     maxUploadBytes: raw.MAX_UPLOAD_MB * 1024 * 1024,
+    maxMaterialTextChars: resolveTextChars(raw.MAX_MATERIAL_TEXT_CHARS, raw.MAX_UPLOAD_MB),
     corsOrigin: parseOrigins(raw.CORS_ORIGIN, raw.WEB_PORT),
     llmBaseUrl: raw.LLM_BASE_URL,
     llmModel: raw.LLM_MODEL,
@@ -309,6 +321,24 @@ function toEnv(raw: RawEnv): Env {
     ttsVoice: raw.TTS_VOICE,
     ttsFormat: raw.TTS_FORMAT,
   };
+}
+
+/**
+ * Предел извлечённого текста в символах.
+ *
+ * Без явного значения выводится из `MAX_UPLOAD_MB`: в худшем случае (обычный
+ * текстовый файл в ASCII) один байт даёт один символ, поэтому запас в 1.1
+ * покрывает и разметку, и нормализацию переводов строк. Связка нужна, чтобы
+ * два предела не противоречили друг другу: иначе пользователь получал бы
+ * успешную загрузку и следом «текст слишком большой» — на файле, который сам
+ * же сервер и разрешил.
+ */
+function resolveTextChars(explicit: number | undefined, uploadMb: number): number {
+  if (explicit !== undefined) {
+    return explicit;
+  }
+
+  return Math.min(Math.round(uploadMb * 1_100_000), 250_000_000);
 }
 
 /**

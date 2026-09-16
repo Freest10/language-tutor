@@ -13,6 +13,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 
 import {
+  MAX_MATERIAL_TEXT_LENGTH,
   API_PREFIX,
   APP_NAME,
   DEFAULT_CEFR_LEVEL,
@@ -22,15 +23,13 @@ import {
   KNOWN_LANGUAGE_CODES,
   LANGUAGE_LABELS,
   MAX_AUDIO_UPLOAD_BYTES,
-  MAX_MATERIAL_TEXT_LENGTH,
-  MAX_MATERIAL_UPLOAD_BYTES,
   MAX_PAGE_SIZE,
   MAX_TTS_TEXT_LENGTH,
   type AppConfig,
   type LanguageOption,
 } from '@lt/shared';
 
-import { APP_VERSION } from '../config/env.js';
+import { APP_VERSION, env } from '../config/env.js';
 import { llmCapability, sttCapability, ttsCapability } from '../providers/factory.js';
 
 /** Языки с готовыми пресетами: их предлагает интерфейс. */
@@ -56,7 +55,15 @@ export function buildAppConfig(): AppConfig {
       dailyMinutes: DEFAULT_DAILY_MINUTES,
     },
     limits: {
-      maxMaterialUploadBytes: MAX_MATERIAL_UPLOAD_BYTES,
+      // Действующий предел файла, а не константа контракта: клиент проверяет
+      // файл до отправки и рисует по этому числу подсказку, поэтому обязан
+      // видеть то же значение, которое применит сервер.
+      maxMaterialUploadBytes: env.maxUploadBytes,
+      // А это предел поля «вставить текст», а не извлечённого из файла: клиент
+      // считает по нему символы в textarea, и число обязано совпадать с
+      // ограничением схемы createTextMaterialRequestSchema. Предел извлечения
+      // (MAX_MATERIAL_TEXT_CHARS) клиенту не нужен: его превышение приходит
+      // статусом материала с человекочитаемым пояснением.
       maxMaterialTextLength: MAX_MATERIAL_TEXT_LENGTH,
       maxAudioUploadBytes: MAX_AUDIO_UPLOAD_BYTES,
       maxTtsTextLength: MAX_TTS_TEXT_LENGTH,
